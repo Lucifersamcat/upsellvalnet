@@ -61,7 +61,6 @@
     const PRECIO_PROMO = 999;          // primeros 3 meses
     const MESES_PROMO = 3;
     const UPLIFT = PLAN_NUEVO.precio - PLAN_ACTUAL.precio; // 301 RD$/mes a partir del mes 4
-    const STORAGE_KEY = 'valnet_upsell_v2';
 
     const RD = (n) => 'RD$' + Number(n).toLocaleString('es-DO');
 
@@ -82,23 +81,6 @@
     ============================================================ */
     const NOW = () => new Date().toISOString();
 
-    function seedData() {
-      const c = (id, nombre, telefono, direccion, inicio, estado='pendiente', notas='', extra={}) =>
-        ({ id, nombre, telefono, direccion, inicio, estado, notas,
-           callbackAt: extra.callbackAt || null,
-           lastContact: extra.lastContact || null });
-
-      const clients = [
-        c(1, 'Janio Casasnovas',  '809-743-2156', 'Calle Independencia #58, Miramar',     '2021-05-14'),
-        c(2, 'Manuel Valenzuela', '829-318-9074', 'Av. Circunvalación #92, Buenos Aires', '2022-11-03'),
-      ];
-
-      const log = clients
-        .filter(x => x.lastContact)
-        .map(x => ({ id: x.id, nombre: x.nombre, resultado: x.estado, at: x.lastContact }));
-
-      return { clients, log };
-    }
 
     /* ============================================================
        UTILIDADES DE FECHA
@@ -137,14 +119,7 @@
        REDUCER
     ============================================================ */
     function init() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed && Array.isArray(parsed.clients)) return parsed;
-        }
-      } catch (e) {}
-      return seedData();
+      return { clients: [], log: [] };
     }
 
     function reducer(state, action) {
@@ -165,11 +140,13 @@
         }
         case 'AGREGAR': {
           const nextId = state.clients.reduce((m,c)=>Math.max(m,c.id),0) + 1;
-          const nuevo = { id: nextId, ...action.cliente, estado:'pendiente', notas:'', callbackAt:null, lastContact:null };
+          const nuevo = { id: nextId, ...action.cliente, tier: '999', estado:'pendiente', notas:'', callbackAt:null, lastContact:null };
           return { ...state, clients: [...state.clients, nuevo] };
         }
         case 'RESET':
-          return seedData();
+          return { clients: [], log: [] };
+        case 'LOAD':
+          return { clients: action.payload.clients, log: action.payload.log };
         case 'LIMPIAR': {
           const clients = state.clients.map(c => ({ ...c, estado:'pendiente', notas:'', callbackAt:null, lastContact:null }));
           return { clients, log: [] };
@@ -788,9 +765,48 @@
       const [toast, setToast] = useState(null);
       const toastTimer = useRef(null);
 
-      // Persistencia
+      const etagRef = useRef(null);
+      const isLoadingRef = useRef(false);
+
+      const fetchState = useCallback(async () => {
+        try {
+          const headers = etagRef.current ? { 'If-None-Match': etagRef.current } : {};
+          const res = await fetch('/api/state', { headers });
+          if (res.status === 304) return;
+          if (!res.ok) return;
+          const data = await res.json();
+          etagRef.current = res.headers.get('ETag');
+          isLoadingRef.current = true;
+          dispatch({ type: 'LOAD', payload: data });
+        } catch (e) {
+          console.error('fetchState error:', e);
+        }
+      }, []);
+
+      const postState = useCallback(async (s) => {
+        try {
+          const res = await fetch('/api/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clients: s.clients, log: s.log }),
+          });
+          if (res.ok) {
+            const { version } = await res.json();
+            etagRef.current = `"v${version}"`;
+          }
+        } catch (e) {
+          console.error('postState error:', e);
+        }
+      }, []);
+
+      // Initial load on mount
+      useEffect(() => { fetchState(); }, []);
+
+      // Auto-save on mutation (skip when state was set by LOAD)
       useEffect(() => {
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+        if (isLoadingRef.current) { isLoadingRef.current = false; return; }
+        if (state.clients.length === 0 && state.log.length === 0) return;
+        postState(state);
       }, [state]);
 
       const showToast = (msg, tone='ok') => {
@@ -871,7 +887,7 @@
       return (
         <div className="min-h-screen pb-10">
           <Header stats={stats} vista={vista === 'llamada' ? 'lista' : vista}
-            setVista={(v) => { setVista(v); setActiveId(null); }}
+            setVista={(v) => { setVista(v); setActiveId(null); fetchState(); }}
             onExport={exportarCSV} onReset={onReset} />
 
           {vista === 'dashboard' && <Dashboard clients={state.clients} log={state.log} stats={stats} />}
