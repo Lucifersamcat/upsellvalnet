@@ -61,7 +61,7 @@
     const PRECIO_PROMO = 999;          // primeros 3 meses
     const MESES_PROMO = 3;
     const UPLIFT = PLAN_NUEVO.precio - PLAN_ACTUAL.precio; // 301 RD$/mes a partir del mes 4
-    const STORAGE_KEY = 'valnet_upsell_v1';
+    const STORAGE_KEY = 'valnet_upsell_v2';
 
     const RD = (n) => 'RD$' + Number(n).toLocaleString('es-DO');
 
@@ -83,32 +83,16 @@
     const NOW = () => new Date().toISOString();
 
     function seedData() {
-      const t = NOW();
       const c = (id, nombre, telefono, direccion, inicio, estado='pendiente', notas='', extra={}) =>
         ({ id, nombre, telefono, direccion, inicio, estado, notas,
            callbackAt: extra.callbackAt || null,
            lastContact: extra.lastContact || null });
 
-      const manana9 = (() => { const d = new Date(); d.setDate(d.getDate()+1); d.setHours(15,0,0,0); return d.toISOString(); })();
-
       const clients = [
-        c(1,  'Ramón Pérez Núñez',        '809-529-7741', 'Calle Duarte #45, Villa Velázquez',          '2018-03-12'),
-        c(2,  'Altagracia Jiménez Beltré','829-715-3320', 'Av. Independencia #120, Miramar',            '2018-07-01'),
-        c(3,  'José Luis Carvajal',        '809-246-1185', 'Calle Sánchez #8, Placer Bonito',           '2019-01-20', 'convertido', 'Aceptó de inmediato. Muy contento con doblar la velocidad.', { lastContact: t }),
-        c(4,  'María del Carmen Reyes',    '849-602-9043', 'Calle 27 de Febrero #33, Barrio Restauración','2019-05-15'),
-        c(5,  'Francisco Mejía Santos',    '809-918-4402', 'Calle Mella #77, Las Flores',               '2019-11-03', 'convertido', 'Le gustó que no hay instalación. Activado en la llamada.', { lastContact: t }),
-        c(6,  'Yolanda Santana de la Cruz','829-440-7716', 'Av. Circunvalación #210, Buenos Aires',      '2020-02-28'),
-        c(7,  'Pedro Pablo Guzmán',        '809-377-2258', 'Calle Restauración #14, Villa Providencia',  '2020-08-19', 'callback', 'Pidió que lo llamen mañana 3:00 pm, estaba ocupado.', { callbackAt: manana9, lastContact: t }),
-        c(8,  'Carmen Rosa Féliz',         '849-281-6650', 'Calle Sánchez #59, Punta Garza',            '2021-04-10'),
-        c(9,  'Juan Carlos Mota',          '809-655-1907', 'Av. Libertad #5, Centro de la Ciudad',       '2021-09-22', 'no_interesado', 'Dice que casi no usa internet, solo WhatsApp. No quiso por ahora.', { lastContact: t }),
-        c(10, 'Rosa Elena Disla',          '829-203-8874', 'Calle Duvergé #41, Villa Velázquez',         '2022-01-14'),
-        c(11, 'Manuel Encarnación Lora',   '809-844-5512', 'Calle Hermanas Mirabal #19, Miramar',        '2022-06-30', 'convertido', 'Tiene varios dispositivos en casa, le interesó el doble de velocidad.', { lastContact: t }),
-        c(12, 'Luisa Fernanda Brito',      '849-119-3367', 'Calle Colón #88, Placer Bonito',            '2023-03-05'),
-        c(13, 'Ángel Gabriel Severino',    '809-501-7029', 'Av. Las Américas #150, Las Flores',          '2023-10-11'),
-        c(14, 'Dilcia Margarita Polanco',  '829-967-4418', 'Calle Beller #23, Buenos Aires',            '2024-02-17'),
+        c(1, 'Janio Casasnovas',  '809-743-2156', 'Calle Independencia #58, Miramar',     '2021-05-14'),
+        c(2, 'Manuel Valenzuela', '829-318-9074', 'Av. Circunvalación #92, Buenos Aires', '2022-11-03'),
       ];
 
-      // Registro de llamadas para "llamadas realizadas hoy"
       const log = clients
         .filter(x => x.lastContact)
         .map(x => ({ id: x.id, nombre: x.nombre, resultado: x.estado, at: x.lastContact }));
