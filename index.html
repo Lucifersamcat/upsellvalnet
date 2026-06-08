@@ -153,6 +153,7 @@
           const nextId = state.clients.reduce((m,c)=>Math.max(m,c.id),0) + 1;
           const nuevo = {
             id: nextId, ...action.cliente, tier: '999',
+            plan: action.cliente.plan || "Conectao'",
             estado:'pendiente', notas:'', callbackAt:null, lastContact:null,
             recordatorio: null,
           };
@@ -1290,7 +1291,7 @@
             const tier = col(row, 'tier', 'plan_tier') || '999';
             const planFromCSV = col(row, 'plan', 'servicio', 'paquete', 'descripcion');
             const planDerived = planFromCSV || (() => {
-              const p = PLANES.find(pl => String(pl.precio) === tier);
+              const p = PLANES.find(pl => pl.precio === Number(tier));
               return p ? p.nombre : "Conectao'";
             })();
             return {
