@@ -56,11 +56,22 @@
     /* ============================================================
        CONSTANTES DE NEGOCIO
     ============================================================ */
-    const PLAN_ACTUAL = { nombre: '20/20 Mbps', precio: 999 };
-    const PLAN_NUEVO  = { nombre: '40/40 Mbps', precio: 1300 };
-    const PRECIO_PROMO = 999;          // primeros 3 meses
-    const MESES_PROMO = 3;
-    const UPLIFT = PLAN_NUEVO.precio - PLAN_ACTUAL.precio; // 301 RD$/mes a partir del mes 4
+    const PLANES = [
+      { nombre: "Conectao'",  precio: 999  },
+      { nombre: 'Doméstico',  precio: 1300 },
+      { nombre: 'Estudio',    precio: 1630 },
+      { nombre: 'Emprende',   precio: 1899 },
+      { nombre: 'Cinemática', precio: 2550 },
+      { nombre: 'Negocio',    precio: 2999 },
+      { nombre: 'Gamer',      precio: 3499 },
+      { nombre: 'Galáctico',  precio: 3800 },
+    ];
+
+    // Returns the PLANES entry for the given plan name (case-insensitive), or null
+    function planInfo(nombre) {
+      if (!nombre) return null;
+      return PLANES.find(p => p.nombre.toLowerCase() === nombre.toLowerCase()) || null;
+    }
 
     const RD = (n) => 'RD$' + Number(n).toLocaleString('es-DO');
 
@@ -140,7 +151,11 @@
         }
         case 'AGREGAR': {
           const nextId = state.clients.reduce((m,c)=>Math.max(m,c.id),0) + 1;
-          const nuevo = { id: nextId, ...action.cliente, tier: '999', estado:'pendiente', notas:'', callbackAt:null, lastContact:null };
+          const nuevo = {
+            id: nextId, ...action.cliente, tier: '999',
+            estado:'pendiente', notas:'', callbackAt:null, lastContact:null,
+            recordatorio: null,
+          };
           return { ...state, clients: [...state.clients, nuevo] };
         }
         case 'RESET':
@@ -442,7 +457,7 @@
       return (
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
           <h2 className="mb-1 text-lg font-bold text-slate-900">Resumen de la campaña</h2>
-          <p className="mb-5 text-sm text-slate-500">Promoción 40/40 Mbps · primeros {MESES_PROMO} meses a {RD(PRECIO_PROMO)}, luego {RD(PLAN_NUEVO.precio)}.</p>
+          <p className="mb-5 text-sm text-slate-500">Promoción 40/40 Mbps · primeros {3} meses a {RD(999)}, luego {RD(1300)}.</p>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard icon={Icon.Users} label="Clientes en lista" value={clients.length} sub="Plan actual 20/20 · $999" tone="brand" />
@@ -459,7 +474,7 @@
               </div>
               <div className="mt-3 text-4xl font-extrabold tracking-tight">{RD(stats.ingreso)}<span className="text-lg font-semibold text-brand-100">/mes</span></div>
               <div className="mt-2 text-sm text-brand-100">
-                {stats.convertidos} convertidos × {RD(UPLIFT)} <span className="opacity-80">(a partir del mes 4)</span>
+                {stats.convertidos} convertidos × {RD(301)} <span className="opacity-80">(a partir del mes 4)</span>
               </div>
               <div className="mt-4 rounded-xl bg-white/10 px-3 py-2 text-xs text-brand-50">
                 Proyección anualizada: <strong>{RD(stats.ingreso * 12)}</strong> en ingresos recurrentes.
@@ -808,11 +823,11 @@
                 <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs ring-1 ring-slate-100">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500">Plan actual</span>
-                    <span className="font-semibold text-slate-700">{PLAN_ACTUAL.nombre} · {RD(PLAN_ACTUAL.precio)}</span>
+                    <span className="font-semibold text-slate-700">{"Conectao'"} · {RD(999)}</span>
                   </div>
                   <div className="mt-1.5 flex items-center justify-between">
                     <span className="text-slate-500">Oferta</span>
-                    <span className="font-semibold text-brand-700">{PLAN_NUEVO.nombre} · {RD(PRECIO_PROMO)} × {MESES_PROMO}m</span>
+                    <span className="font-semibold text-brand-700">{'Doméstico'} · {RD(999)} × {3}m</span>
                   </div>
                 </div>
               </div>
@@ -1137,7 +1152,7 @@
         return {
           convertidos,
           tasa: total ? Math.round(convertidos/total*100) : 0,
-          ingreso: convertidos * UPLIFT,
+          ingreso: convertidos * 301,
           llamadasHoy,
         };
       }, [state]);
@@ -1272,19 +1287,27 @@
             maxId += 1;
             const cedula = col(row, 'cedula', 'id', 'codigo');
             const telefono = col(row, 'movil', 'telefono', 'celular', 'telefono1');
+            const tier = col(row, 'tier', 'plan_tier') || '999';
+            const planFromCSV = col(row, 'plan', 'servicio', 'paquete', 'descripcion');
+            const planDerived = planFromCSV || (() => {
+              const p = PLANES.find(pl => String(pl.precio) === tier);
+              return p ? p.nombre : "Conectao'";
+            })();
             return {
               id: cedula || maxId,
               nombre: col(row, 'nombre', 'name', 'cliente'),
               telefono,
               direccion: col(row, 'zona', 'direccion', 'address', 'sector'),
               inicio: col(row, 'inicio', 'fecha') || new Date().toISOString().slice(0, 10),
-              tier: col(row, 'tier', 'plan_tier') || '999',
+              tier,
+              plan: planDerived,
               estado: 'pendiente',
               notas: '',
               callbackAt: null,
               lastContact: null,
               agentId: null,
               agentNombre: null,
+              recordatorio: null,
             };
           }).filter(c => c.nombre);
 
