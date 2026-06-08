@@ -121,6 +121,18 @@
       const d = new Date(iso), h = new Date();
       return d.getFullYear()===h.getFullYear() && d.getMonth()===h.getMonth() && d.getDate()===h.getDate();
     }
+    function esVencido(fechaStr) {
+      if (!fechaStr) return false;
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      const d = new Date(fechaStr + 'T00:00:00');
+      return d <= hoy;
+    }
+    function fechaMasNMeses(n) {
+      const d = new Date();
+      d.setMonth(d.getMonth() + n);
+      return d.toISOString().slice(0, 10);
+    }
     function telLink(telefono) {
       const digits = telefono.replace(/\D/g,'');
       return 'tel:+1' + digits;
@@ -182,6 +194,19 @@
           );
           return { ...state, clients };
         }
+        case 'SET_RECORDATORIO': {
+          const { id, fecha, nota } = action;
+          const clients = state.clients.map(c =>
+            c.id === id ? { ...c, recordatorio: { fecha, nota } } : c
+          );
+          return { ...state, clients };
+        }
+        case 'CLEAR_RECORDATORIO': {
+          const clients = state.clients.map(c =>
+            c.id === action.id ? { ...c, recordatorio: null } : c
+          );
+          return { ...state, clients };
+        }
         default:
           return state;
       }
@@ -216,12 +241,24 @@
     /* ============================================================
        GUIÓN Y OBJECIONES
     ============================================================ */
-    const GUION = [
-      { paso: 1, titulo: 'Apertura', texto: 'Buenas [tardes/noches], ¿hablo con [nombre del cliente]? Le llamo de ValNet, soy [nombre del agente]. Le llamo porque usted es uno de nuestros clientes y tenemos una promoción exclusiva para usted — no le va a costar nada adicional.' },
-      { paso: 2, titulo: 'La oferta', texto: 'Queremos subirle el plan de 20 a 40 megas — el doble de velocidad — y usted sigue pagando los mismos $999 durante los próximos 3 meses. No hay instalación, no hay trámite, lo activamos hoy mismo.' },
-      { paso: 3, titulo: 'Transparencia mes 4', texto: 'A partir del cuarto mes, el plan 40/40 queda en $1,300. Pero si en ese momento usted prefiere regresar al plan anterior, sin problema — usted decide. Lo importante es que pruebe la diferencia sin riesgo.' },
-      { paso: 4, titulo: 'Cierre', texto: '¿Le parece bien que lo activemos ahora mismo?', nota: 'Pregunta directa. Esperar respuesta sin agregar más.' },
-    ];
+    function makeGuion(campania) {
+      const planA = campania ? campania.planActual : "Conectao'";
+      const planN = campania ? campania.planNuevo  : 'Doméstico';
+      const promo  = campania ? RD(campania.precioPromo) : RD(999);
+      const precN  = campania ? RD(campania.precioNuevo) : RD(1300);
+      const meses  = campania ? campania.mesesPromo : 3;
+      return [
+        { paso: 1, titulo: 'Apertura',
+          texto: 'Buenas [tardes/noches], ¿hablo con [nombre del cliente]? Le llamo de ValNet, soy [nombre del agente]. Le llamo porque usted es uno de nuestros clientes y tenemos una promoción exclusiva para usted — no le va a costar nada adicional.' },
+        { paso: 2, titulo: 'La oferta',
+          texto: `Queremos subirle el plan de ${planA} a ${planN} — más velocidad — y usted sigue pagando los mismos ${promo} durante los próximos ${meses} meses. No hay instalación, no hay trámite, lo activamos hoy mismo.` },
+        { paso: 3, titulo: `Transparencia mes ${meses + 1}`,
+          texto: `A partir del mes ${meses + 1}, el plan ${planN} queda en ${precN}. Pero si en ese momento usted prefiere regresar al plan anterior, sin problema — usted decide. Lo importante es que pruebe la diferencia sin riesgo.` },
+        { paso: 4, titulo: 'Cierre',
+          texto: '¿Le parece bien que lo activemos ahora mismo?',
+          nota: 'Pregunta directa. Esperar respuesta sin agregar más.' },
+      ];
+    }
 
     const OBJECIONES = [
       { q: '"¿Y después me van a cobrar más sin avisarme?"', a: 'No — le vamos a enviar un mensaje avisándole un mes antes de que termine la promoción para que usted decida. Sin sorpresas.' },
@@ -335,7 +372,7 @@
                 <Icon.Signal className="h-7 w-7" />
               </div>
               <div className="text-xl font-extrabold tracking-tight text-slate-900">ValNet Wireless</div>
-              <div className="text-sm text-slate-500">Campaña Upsell · 20→40 Mbps</div>
+              <div className="text-sm text-slate-500">ValNet Wireless · Gestión de Campañas</div>
             </div>
             <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="mb-4 text-base font-bold text-slate-900">Iniciar sesión</h2>
@@ -367,7 +404,7 @@
     /* ============================================================
        HEADER
     ============================================================ */
-    function Header({ stats, vista, setVista, onExport, onReset, onImport, session, onLogout, onAdmin, campaigns, campania, onSelectCampania }) {
+    function Header({ stats, vista, setVista, onExport, onReset, onImport, session, onLogout, onAdmin, campaigns, campania, onSelectCampania, recordatoriosCount }) {
       return (
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-4 px-4 py-3 sm:px-6">
@@ -403,6 +440,14 @@
                   <option key={c.id} value={c.id}>{c.nombre}</option>
                 ))}
               </select>
+              {recordatoriosCount > 0 && (
+                <div className="relative flex items-center justify-center rounded-lg border border-amber-200 bg-amber-50 p-1.5 text-amber-600">
+                  <Icon.Bell className="h-4 w-4" />
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white leading-none">
+                    {recordatoriosCount}
+                  </span>
+                </div>
+              )}
               <span className="hidden text-xs font-semibold text-slate-500 sm:inline">Hola, {session.nombre}</span>
               {session.isAdmin && (
                 <button onClick={onAdmin}
@@ -600,7 +645,7 @@
     /* ============================================================
        LISTA DE CLIENTES
     ============================================================ */
-    function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session, campania }) {
+    function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session, campania, onClearRecordatorio }) {
       const [filtro, setFiltro] = useState('todos');
       const [orden, setOrden] = useState('antiguos'); // antiguos | nuevos
       const [busqueda, setBusqueda] = useState('');
@@ -616,6 +661,11 @@
           return planMatch && zonaMatch;
         });
       }, [clients, campania]);
+
+      const recordatoriosVencidos = useMemo(() =>
+        clients.filter(c => c.recordatorio && esVencido(c.recordatorio.fecha))
+          .sort((a, b) => a.recordatorio.fecha.localeCompare(b.recordatorio.fecha)),
+      [clients]);
 
       const conteo = useMemo(() => {
         const o = { todos: clientesFiltradosCampania.length };
@@ -644,6 +694,41 @@
       return (
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
           <ModalAgregar open={modal} onClose={() => setModal(false)} onSave={(c) => { onAdd(c); setModal(false); }} />
+
+          {recordatoriosVencidos.length > 0 && (
+            <div className="mb-4 overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-sm">
+              <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-100/60 px-4 py-2.5">
+                <Icon.Bell className="h-4 w-4 text-amber-600" />
+                <span className="text-sm font-bold text-amber-900">Recordatorios pendientes</span>
+                <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">{recordatoriosVencidos.length}</span>
+              </div>
+              <div className="divide-y divide-amber-100">
+                {recordatoriosVencidos.map(c => (
+                  <div key={c.id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold text-slate-800">{c.nombre}</div>
+                      <div className="mt-0.5 text-xs text-amber-700">
+                        <span className="font-semibold">{c.recordatorio.fecha}</span>
+                        {c.recordatorio.nota && <span> · {c.recordatorio.nota}</span>}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button onClick={() => onOpen(c.id)}
+                        className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700">
+                        Llamar
+                      </button>
+                      {onClearRecordatorio && (
+                        <button onClick={() => onClearRecordatorio(c.id)} title="Limpiar recordatorio"
+                          className="rounded-lg border border-amber-200 px-2 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100">
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Controles */}
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -695,6 +780,11 @@
                       <td className="px-4 py-3">
                         <div className="font-semibold text-slate-800">{c.nombre}</div>
                         {c.notas && <div className="mt-0.5 max-w-xs truncate text-xs text-slate-400">{c.notas}</div>}
+                        {c.recordatorio && (
+                          <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600">
+                            🔔 {c.recordatorio.fecha}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 font-medium text-slate-600">{c.telefono}</td>
                       <td className="hidden max-w-xs px-4 py-3 text-slate-500 lg:table-cell"><div className="truncate">{c.direccion}</div></td>
@@ -785,7 +875,7 @@
       );
     }
 
-    function CallPanel({ cliente, onResult, onNota, onBack, hayNext }) {
+    function CallPanel({ cliente, onResult, onNota, onBack, hayNext, campania, onSetRecordatorio }) {
       const [paso, setPaso] = useState(0);
       const [nota, setNota] = useState(cliente.notas || '');
       const [objAbierta, setObjAbierta] = useState(null);
@@ -795,11 +885,17 @@
         d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
         return d.toISOString().slice(0,16);
       });
+      const [showReminderSuggest, setShowReminderSuggest] = useState(false);
+      const [reminderFecha, setReminderFecha] = useState('');
+      const [reminderNota, setReminderNota] = useState('');
       const notaRef = useRef(null);
+
+      const guion = useMemo(() => makeGuion(campania), [campania]);
 
       // Reset al cambiar de cliente
       useEffect(() => {
         setPaso(0); setNota(cliente.notas || ''); setObjAbierta(null); setShowCallback(false);
+        setShowReminderSuggest(false);
       }, [cliente.id]);
 
       const guardarNota = useCallback(() => {
@@ -809,6 +905,11 @@
       const registrar = (resultado, callbackAt) => {
         if (nota !== cliente.notas) onNota(cliente.id, nota);
         onResult(cliente.id, resultado, callbackAt);
+        if (resultado === 'convertido' && campania && campania.mesesPromo > 0 && onSetRecordatorio) {
+          setReminderFecha(fechaMasNMeses(campania.mesesPromo));
+          setReminderNota(`Verificar si mantiene plan ${campania.planNuevo}`);
+          setShowReminderSuggest(true);
+        }
       };
 
       // Atajos de teclado
@@ -821,14 +922,14 @@
           else if (k === 'n') { registrar('no_interesado'); }
           else if (k === 'x') { registrar('llamado'); }
           else if (k === 'b') { setShowCallback(s => !s); }
-          else if (k === 'arrowright') { setPaso(p => Math.min(GUION.length-1, p+1)); }
+          else if (k === 'arrowright') { setPaso(p => Math.min(guion.length-1, p+1)); }
           else if (k === 'arrowleft') { setPaso(p => Math.max(0, p-1)); }
         };
         window.addEventListener('keydown', h);
         return () => window.removeEventListener('keydown', h);
       });
 
-      const g = GUION[paso];
+      const g = guion[paso];
 
       return (
         <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
@@ -870,16 +971,23 @@
                   </div>
                 </dl>
 
-                <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs ring-1 ring-slate-100">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Plan actual</span>
-                    <span className="font-semibold text-slate-700">{"Conectao'"} · {RD(999)}</span>
+                {campania ? (
+                  <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs ring-1 ring-slate-100">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Plan actual</span>
+                      <span className="font-semibold text-slate-700">{campania.planActual} · {RD(campania.precioActual)}</span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between">
+                      <span className="text-slate-500">Oferta</span>
+                      <span className="font-semibold text-brand-700">{campania.planNuevo} · {RD(campania.precioPromo)} × {campania.mesesPromo}m</span>
+                    </div>
                   </div>
-                  <div className="mt-1.5 flex items-center justify-between">
-                    <span className="text-slate-500">Oferta</span>
-                    <span className="font-semibold text-brand-700">{'Doméstico'} · {RD(999)} × {3}m</span>
+                ) : (
+                  <div className="mt-4 rounded-xl bg-amber-50 p-3 text-xs ring-1 ring-amber-100">
+                    <span className="font-semibold text-amber-700">Sin campaña activa</span>
+                    <span className="text-amber-600"> — selecciona una en el encabezado.</span>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Notas */}
@@ -897,12 +1005,12 @@
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="text-sm font-bold text-slate-900">Guión de llamada</h3>
-                  <span className="text-xs font-semibold text-slate-400">Paso {paso+1} de {GUION.length}</span>
+                  <span className="text-xs font-semibold text-slate-400">Paso {paso+1} de {guion.length}</span>
                 </div>
 
                 {/* Stepper */}
                 <div className="mb-4 flex gap-2">
-                  {GUION.map((s, i) => (
+                  {guion.map((s, i) => (
                     <button key={s.paso} onClick={() => setPaso(i)}
                       className={'flex flex-1 flex-col items-start rounded-xl border px-3 py-2 text-left transition ' +
                         (i === paso ? 'border-brand-600 bg-brand-50' : i < paso ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-white hover:bg-slate-50')}>
@@ -925,7 +1033,7 @@
                 <div className="mt-4 flex justify-between">
                   <button onClick={() => setPaso(p => Math.max(0, p-1))} disabled={paso === 0}
                     className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 disabled:opacity-30">← Anterior</button>
-                  <button onClick={() => setPaso(p => Math.min(GUION.length-1, p+1))} disabled={paso === GUION.length-1}
+                  <button onClick={() => setPaso(p => Math.min(guion.length-1, p+1))} disabled={paso === guion.length-1}
                     className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-30">Siguiente →</button>
                 </div>
               </div>
@@ -955,6 +1063,32 @@
                   <button onClick={() => registrar('callback', new Date(callbackVal).toISOString())}
                     className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600">Confirmar callback</button>
                   <button onClick={() => setShowCallback(false)} className="rounded-lg px-2 py-2 text-amber-700 hover:bg-amber-100"><Icon.X className="h-4 w-4" /></button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showReminderSuggest && (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                <Icon.Bell className="h-4 w-4" /> ¿Agregar recordatorio de seguimiento?
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input type="date" value={reminderFecha} onChange={e => setReminderFecha(e.target.value)}
+                  className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200" />
+                <input type="text" value={reminderNota} onChange={e => setReminderNota(e.target.value)}
+                  className="flex-1 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200"
+                  placeholder="Nota del recordatorio" />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { onSetRecordatorio(cliente.id, reminderFecha, reminderNota); setShowReminderSuggest(false); }}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700">
+                    Guardar
+                  </button>
+                  <button onClick={() => setShowReminderSuggest(false)}
+                    className="rounded-lg px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-100">
+                    Saltar
+                  </button>
                 </div>
               </div>
             </div>
@@ -1348,6 +1482,10 @@
         };
       }, [state, campania]);
 
+      const recordatoriosCount = useMemo(() =>
+        state.clients.filter(c => c.recordatorio && esVencido(c.recordatorio.fecha)).length,
+      [state.clients]);
+
       const activeCliente = state.clients.find(c => c.id === activeId);
 
       const abrirCliente = (id) => { setActiveId(id); setVista('llamada'); };
@@ -1379,6 +1517,16 @@
       const onRevertir = (id) => {
         dispatch({ type: 'REVERTIR_ESTADO', id });
         showToast('Estado revertido a pendiente');
+      };
+
+      const onSetRecordatorio = (id, fecha, nota) => {
+        dispatch({ type: 'SET_RECORDATORIO', id, fecha, nota });
+        showToast('Recordatorio guardado 🔔');
+      };
+
+      const onClearRecordatorio = (id) => {
+        dispatch({ type: 'CLEAR_RECORDATORIO', id });
+        showToast('Recordatorio eliminado');
       };
 
       const onSelectCampania = (id) => {
@@ -1532,16 +1680,16 @@
             setVista={(v) => { setVista(v); setActiveId(null); fetchState(); touchSession(); }}
             onExport={exportarCSV} onReset={onReset} onImport={importarCSV}
             session={session} onLogout={handleLogout} onAdmin={onAdmin}
-            campaigns={campaigns} campania={campania} onSelectCampania={onSelectCampania} />
+            campaigns={campaigns} campania={campania} onSelectCampania={onSelectCampania} recordatoriosCount={recordatoriosCount} />
 
           {vista === 'dashboard' && <Dashboard clients={state.clients} log={state.log} stats={stats} campania={campania} />}
-          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} campania={campania} />}
+          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} campania={campania} onClearRecordatorio={onClearRecordatorio} />}
           {vista === 'admin' && session.isAdmin && <AdminView session={session} onCampaignsChange={fetchCampaigns} />}
           {vista === 'llamada' && activeCliente && (
             <CallPanel cliente={activeCliente} onResult={onResult} onNota={onNota}
               onBack={() => { setVista('lista'); setActiveId(null); }}
               hayNext={!!siguientePendiente(activeCliente.id)}
-              campania={campania} />
+              campania={campania} onSetRecordatorio={onSetRecordatorio} />
           )}
 
           <Toast toast={toast} />
