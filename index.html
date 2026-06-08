@@ -1200,27 +1200,63 @@
           const file = e.target.files[0];
           if (!file) return;
           const text = await file.text();
+
+          // Parse a single CSV line respecting quoted fields (handles commas inside quotes)
+          const parseCSVLine = (line) => {
+            const fields = [];
+            let cur = '', inQuote = false;
+            for (let i = 0; i < line.length; i++) {
+              const ch = line[i];
+              if (ch === '"') {
+                if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+                else inQuote = !inQuote;
+              } else if (ch === ',' && !inQuote) {
+                fields.push(cur.trim()); cur = '';
+              } else {
+                cur += ch;
+              }
+            }
+            fields.push(cur.trim());
+            return fields;
+          };
+
           const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim());
           if (lines.length < 2) { showToast('CSV vacío o inválido', 'warn'); return; }
-          const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-          const get = (row, col) => { const i = headers.indexOf(col); return i >= 0 ? (row[i] || '').trim() : ''; };
-          let maxId = state.clients.reduce((m, c) => Math.max(m, c.id), 0);
+
+          const rawHeaders = parseCSVLine(lines[0]).map(h => h.toLowerCase());
+
+          // Resolve a field trying multiple possible header names
+          const col = (row, ...names) => {
+            for (const n of names) {
+              const i = rawHeaders.indexOf(n.toLowerCase());
+              if (i >= 0 && row[i]) return row[i].trim();
+            }
+            return '';
+          };
+
+          let maxId = state.clients.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0);
+
           const parsed = lines.slice(1).map(line => {
-            const row = line.split(',');
+            const row = parseCSVLine(line);
             maxId += 1;
+            const cedula = col(row, 'cedula', 'id', 'codigo');
+            const telefono = col(row, 'movil', 'telefono', 'celular', 'telefono1');
             return {
-              id: get(row, 'id') ? Number(get(row, 'id')) : maxId,
-              nombre: get(row, 'nombre'),
-              telefono: get(row, 'telefono'),
-              direccion: get(row, 'direccion'),
-              inicio: get(row, 'inicio') || new Date().toISOString().slice(0, 10),
-              tier: get(row, 'tier') || '999',
+              id: cedula || maxId,
+              nombre: col(row, 'nombre', 'name', 'cliente'),
+              telefono,
+              direccion: col(row, 'zona', 'direccion', 'address', 'sector'),
+              inicio: col(row, 'inicio', 'fecha') || new Date().toISOString().slice(0, 10),
+              tier: col(row, 'tier', 'plan_tier') || '999',
               estado: 'pendiente',
               notas: '',
               callbackAt: null,
               lastContact: null,
+              agentId: null,
+              agentNombre: null,
             };
           }).filter(c => c.nombre);
+
           if (!parsed.length) { showToast('No se encontraron clientes válidos', 'warn'); return; }
           try {
             const res = await fetch('/api/import', {
