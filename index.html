@@ -630,8 +630,12 @@
           const q = busqueda.toLowerCase();
           r = r.filter(c => c.nombre.toLowerCase().includes(q) || c.telefono.includes(q));
         }
-        return [...r].sort((a, b) => new Date(a.inicio) - new Date(b.inicio));
-      }, [clientesFiltradosCampania, filtro, busqueda]);
+        return [...r].sort((a, b) =>
+          orden === 'antiguos'
+            ? new Date(a.inicio) - new Date(b.inicio)
+            : new Date(b.inicio) - new Date(a.inicio)
+        );
+      }, [clientesFiltradosCampania, filtro, busqueda, orden]);
 
       const chips = [['todos','Todos'], ...ORDEN_ESTADOS.map(e => [e, ESTADOS[e].label])];
 
@@ -1121,10 +1125,7 @@
 
       const [session, setSession] = useState(() => loadSession());
       const [campaigns, setCampaigns] = useState([]);
-      const [campaniaId, setCampaniaId] = useState(() => {
-        const s = loadSession();
-        return s ? (s.campaniaId || null) : null;
-      });
+      const [campaniaId, setCampaniaId] = useState(() => loadSession()?.campaniaId ?? null);
 
       const campania = campaigns.find(c => c.id === campaniaId) || null;
 
