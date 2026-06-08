@@ -41,6 +41,21 @@ function writeAgents(data) {
   fs.writeFileSync(AGENTS_FILE, JSON.stringify(data, null, 2));
 }
 
+const CAMPAIGNS_FILE = path.join(__dirname, 'campaigns.json');
+
+function readCampaigns() {
+  if (!fs.existsSync(CAMPAIGNS_FILE)) {
+    const seed = { campaigns: [] };
+    fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(seed, null, 2));
+    return seed;
+  }
+  return JSON.parse(fs.readFileSync(CAMPAIGNS_FILE, 'utf8'));
+}
+
+function writeCampaigns(data) {
+  fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(data, null, 2));
+}
+
 function requireAdmin(req, res) {
   const agentId = Number(req.headers['x-agent-id']);
   const data = readAgents();
@@ -110,6 +125,80 @@ app.delete('/api/agents/:id', (req, res) => {
     return res.status(404).json({ error: 'Agente no encontrado' });
   }
   writeAgents(data);
+  res.json({ ok: true });
+});
+
+// GET /api/campaigns — all agents can read
+app.get('/api/campaigns', (_req, res) => {
+  const data = readCampaigns();
+  res.json({ campaigns: data.campaigns });
+});
+
+// POST /api/campaigns — admin only
+app.post('/api/campaigns', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { nombre, planActual, planNuevo, precioActual, precioNuevo, precioPromo, mesesPromo, filtroZona } = req.body;
+  if (!nombre || !planActual || !planNuevo) {
+    return res.status(400).json({ error: 'Nombre, planActual y planNuevo son requeridos' });
+  }
+  const data = readCampaigns();
+  if (data.campaigns.some(c => c.nombre.toLowerCase() === nombre.toLowerCase())) {
+    return res.status(400).json({ error: 'Ya existe una campaña con ese nombre' });
+  }
+  const nextId = data.campaigns.reduce((m, c) => Math.max(m, c.id), 0) + 1;
+  const newC = {
+    id: nextId,
+    nombre,
+    planActual,
+    planNuevo,
+    precioActual: Number(precioActual) || 0,
+    precioNuevo: Number(precioNuevo) || 0,
+    precioPromo: Number(precioPromo) || 0,
+    mesesPromo: Number(mesesPromo) || 0,
+    filtroZona: filtroZona || null,
+  };
+  data.campaigns.push(newC);
+  writeCampaigns(data);
+  res.json({ campaign: newC });
+});
+
+// PUT /api/campaigns/:id — admin only
+app.put('/api/campaigns/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const id = Number(req.params.id);
+  const { nombre, planActual, planNuevo, precioActual, precioNuevo, precioPromo, mesesPromo, filtroZona } = req.body;
+  if (!nombre || !planActual || !planNuevo) {
+    return res.status(400).json({ error: 'Nombre, planActual y planNuevo son requeridos' });
+  }
+  const data = readCampaigns();
+  const idx = data.campaigns.findIndex(c => c.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Campaña no encontrada' });
+  data.campaigns[idx] = {
+    id,
+    nombre,
+    planActual,
+    planNuevo,
+    precioActual: Number(precioActual) || 0,
+    precioNuevo: Number(precioNuevo) || 0,
+    precioPromo: Number(precioPromo) || 0,
+    mesesPromo: Number(mesesPromo) || 0,
+    filtroZona: filtroZona || null,
+  };
+  writeCampaigns(data);
+  res.json({ campaign: data.campaigns[idx] });
+});
+
+// DELETE /api/campaigns/:id — admin only
+app.delete('/api/campaigns/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const id = Number(req.params.id);
+  const data = readCampaigns();
+  const before = data.campaigns.length;
+  data.campaigns = data.campaigns.filter(c => c.id !== id);
+  if (data.campaigns.length === before) {
+    return res.status(404).json({ error: 'Campaña no encontrada' });
+  }
+  writeCampaigns(data);
   res.json({ ok: true });
 });
 
