@@ -221,6 +221,107 @@
     }
 
     /* ============================================================
+       SESSION HELPERS
+    ============================================================ */
+    const SESSION_KEY = 'valnet_session';
+    const SESSION_TIMEOUT = 5_400_000; // 90 min in ms
+
+    function loadSession() {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return null;
+        const s = JSON.parse(raw);
+        if (Date.now() - s.lastActivity > SESSION_TIMEOUT) {
+          localStorage.removeItem(SESSION_KEY);
+          return null;
+        }
+        return s;
+      } catch { return null; }
+    }
+
+    function saveSession(session) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, lastActivity: Date.now() }));
+    }
+
+    function touchSession() {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return;
+        const s = JSON.parse(raw);
+        s.lastActivity = Date.now();
+        localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      } catch {}
+    }
+
+    /* ============================================================
+       LOGIN PAGE
+    ============================================================ */
+    function LoginPage({ onLogin }) {
+      const [nombre, setNombre] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+          const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nombre: nombre.trim(), password }),
+          });
+          const data = await res.json();
+          if (!res.ok) { setError(data.error || 'Error al iniciar sesión'); return; }
+          const session = { id: data.id, nombre: data.nombre, isAdmin: data.isAdmin };
+          saveSession(session);
+          onLogin(session);
+        } catch {
+          setError('No se pudo conectar al servidor');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 grid place-items-center bg-slate-100">
+          <div className="w-full max-w-sm px-4">
+            <div className="mb-6 text-center">
+              <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-brand-600 to-sky-400 text-white shadow-lg">
+                <Icon.Signal className="h-7 w-7" />
+              </div>
+              <div className="text-xl font-extrabold tracking-tight text-slate-900">ValNet Wireless</div>
+              <div className="text-sm text-slate-500">Campaña Upsell · 20→40 Mbps</div>
+            </div>
+            <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-4 text-base font-bold text-slate-900">Iniciar sesión</h2>
+              <div className="space-y-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">Nombre</span>
+                  <input autoFocus type="text" value={nombre} onChange={e => setNombre(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                    placeholder="Tu nombre de agente" />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">Contraseña</span>
+                  <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                    placeholder="••••••••" />
+                </label>
+              </div>
+              {error && <p className="mt-3 text-xs font-semibold text-rose-600">{error}</p>}
+              <button type="submit" disabled={loading || !nombre.trim() || !password}
+                className="mt-4 w-full rounded-xl bg-brand-600 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-40">
+                {loading ? 'Verificando…' : 'Entrar'}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
        HEADER
     ============================================================ */
     function Header({ stats, vista, setVista, onExport, onReset, onImport }) {
@@ -772,6 +873,26 @@
       const [toast, setToast] = useState(null);
       const toastTimer = useRef(null);
 
+      const [session, setSession] = useState(() => loadSession());
+
+      // Renew session activity on any user interaction
+      useEffect(() => {
+        const handler = () => touchSession();
+        document.addEventListener('click', handler);
+        document.addEventListener('keydown', handler);
+        return () => {
+          document.removeEventListener('click', handler);
+          document.removeEventListener('keydown', handler);
+        };
+      }, []);
+
+      const handleLogin = (s) => setSession(s);
+
+      const handleLogout = () => {
+        localStorage.removeItem(SESSION_KEY);
+        setSession(null);
+      };
+
       const etagRef = useRef(null);
       const isLoadingRef = useRef(false);
 
@@ -937,10 +1058,12 @@
         input.click();
       };
 
+      if (!session) return <LoginPage onLogin={handleLogin} />;
+
       return (
         <div className="min-h-screen pb-10">
           <Header stats={stats} vista={vista === 'llamada' ? 'lista' : vista}
-            setVista={(v) => { setVista(v); setActiveId(null); fetchState(); }}
+            setVista={(v) => { setVista(v); setActiveId(null); fetchState(); touchSession(); }}
             onExport={exportarCSV} onReset={onReset} onImport={importarCSV} />
 
           {vista === 'dashboard' && <Dashboard clients={state.clients} log={state.log} stats={stats} />}
