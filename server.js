@@ -141,6 +141,9 @@ app.post('/api/campaigns', (req, res) => {
   if (!nombre || !planActual || !planNuevo) {
     return res.status(400).json({ error: 'Nombre, planActual y planNuevo son requeridos' });
   }
+  if (planActual === planNuevo) {
+    return res.status(400).json({ error: 'El plan actual y el plan nuevo deben ser diferentes' });
+  }
   const data = readCampaigns();
   if (data.campaigns.some(c => c.nombre.toLowerCase() === nombre.toLowerCase())) {
     return res.status(400).json({ error: 'Ya existe una campaña con ese nombre' });
@@ -174,6 +177,7 @@ app.put('/api/campaigns/:id', (req, res) => {
   const idx = data.campaigns.findIndex(c => c.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Campaña no encontrada' });
   data.campaigns[idx] = {
+    ...data.campaigns[idx],
     id,
     nombre,
     planActual,
