@@ -667,7 +667,7 @@
                       </td>
                       <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5 opacity-0 transition group-hover:opacity-100">
-                          {session.isAdmin && c.estado !== 'pendiente' && (
+                          {c.estado !== 'pendiente' && (
                             <button onClick={() => onRevertir(c.id)} title="Revertir a pendiente"
                               className="rounded-lg border border-amber-200 px-2 py-1 text-xs font-semibold text-amber-600 hover:bg-amber-50">
                               ↺
