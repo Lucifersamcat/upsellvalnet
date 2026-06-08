@@ -158,6 +158,14 @@
           );
           return { ...state, clients };
         }
+        case 'ELIMINAR_CLIENTE':
+          return { ...state, clients: state.clients.filter(c => c.id !== action.id) };
+        case 'REVERTIR_ESTADO': {
+          const clients = state.clients.map(c =>
+            c.id === action.id ? { ...c, estado: 'pendiente', callbackAt: null, lastContact: null } : c
+          );
+          return { ...state, clients };
+        }
         default:
           return state;
       }
@@ -545,7 +553,7 @@
     /* ============================================================
        LISTA DE CLIENTES
     ============================================================ */
-    function ClientList({ clients, onOpen, onAdd, onTomar, session }) {
+    function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session }) {
       const [filtro, setFiltro] = useState('todos');
       const [orden, setOrden] = useState('antiguos'); // antiguos | nuevos
       const [busqueda, setBusqueda] = useState('');
@@ -657,10 +665,25 @@
                           </button>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
-                          <Icon.Phone className="h-3.5 w-3.5" /> Llamar
-                        </span>
+                      <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1.5 opacity-0 transition group-hover:opacity-100">
+                          {session.isAdmin && c.estado !== 'pendiente' && (
+                            <button onClick={() => onRevertir(c.id)} title="Revertir a pendiente"
+                              className="rounded-lg border border-amber-200 px-2 py-1 text-xs font-semibold text-amber-600 hover:bg-amber-50">
+                              ↺
+                            </button>
+                          )}
+                          {session.isAdmin && (
+                            <button onClick={() => onEliminar(c.id, c.nombre)} title="Eliminar cliente"
+                              className="rounded-lg border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-500 hover:bg-rose-50">
+                              ✕
+                            </button>
+                          )}
+                          <span className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"
+                            onClick={() => onOpen(c.id)}>
+                            <Icon.Phone className="h-3.5 w-3.5" /> Llamar
+                          </span>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -746,7 +769,7 @@
         <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
           {/* Barra superior */}
           <div className="mb-4 flex items-center justify-between">
-            <button onClick={onBack} className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800">
+            <button onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:shadow">
               <Icon.Arrow className="h-4 w-4" /> Volver a la lista
             </button>
             <span className="hidden text-xs text-slate-400 sm:block">Atajos: <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">C</kbd> convertir · <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">N</kbd> no · <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">B</kbd> callback · <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">X</kbd> no contestó</span>
@@ -1137,11 +1160,19 @@
 
       const onResult = (id, resultado, callbackAt) => {
         dispatch({ type: 'RESULTADO', id, resultado, callbackAt });
-        const msgs = { convertido: '✅ Cliente convertido', no_interesado: 'Registrado como no interesado', callback: 'Callback agendado', llamado: 'Marcado: no contestó' };
+        const msgs = { convertido: '✅ Cliente convertido', no_interesado: 'Registrado: no interesado', callback: 'Callback agendado', llamado: 'Marcado: no contestó' };
         showToast(msgs[resultado] || 'Resultado guardado', resultado === 'convertido' ? 'ok' : 'neutral');
-        const next = siguientePendiente(id);
-        if (next) { setActiveId(next); }
-        else { setVista('lista'); setActiveId(null); showToast('¡Lista al día! No quedan pendientes.', 'warn'); }
+      };
+
+      const onEliminar = (id, nombre) => {
+        if (!window.confirm(`¿Eliminar a "${nombre}" de la lista? Esta acción no se puede deshacer.`)) return;
+        dispatch({ type: 'ELIMINAR_CLIENTE', id });
+        showToast('Cliente eliminado');
+      };
+
+      const onRevertir = (id) => {
+        dispatch({ type: 'REVERTIR_ESTADO', id });
+        showToast('Estado revertido a pendiente');
       };
 
       const onNota = (id, notas) => dispatch({ type: 'NOTA', id, notas });
@@ -1284,7 +1315,7 @@
             session={session} onLogout={handleLogout} onAdmin={onAdmin} />
 
           {vista === 'dashboard' && <Dashboard clients={state.clients} log={state.log} stats={stats} />}
-          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} session={session} />}
+          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} />}
           {vista === 'admin' && session.isAdmin && <AdminView session={session} />}
           {vista === 'llamada' && activeCliente && (
             <CallPanel cliente={activeCliente} onResult={onResult} onNota={onNota}
