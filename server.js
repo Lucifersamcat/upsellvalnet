@@ -26,6 +26,93 @@ function writeData(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
+const AGENTS_FILE = path.join(__dirname, 'agents.json');
+
+function readAgents() {
+  if (!fs.existsSync(AGENTS_FILE)) {
+    const seed = { agents: [] };
+    fs.writeFileSync(AGENTS_FILE, JSON.stringify(seed, null, 2));
+    return seed;
+  }
+  return JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8'));
+}
+
+function writeAgents(data) {
+  fs.writeFileSync(AGENTS_FILE, JSON.stringify(data, null, 2));
+}
+
+function requireAdmin(req, res) {
+  const agentId = Number(req.headers['x-agent-id']);
+  const data = readAgents();
+  const agent = data.agents.find(a => a.id === agentId);
+  if (!agent || !agent.isAdmin) {
+    res.status(403).json({ error: 'Acceso denegado' });
+    return null;
+  }
+  return agent;
+}
+
+// POST /api/login — verify credentials
+app.post('/api/login', (req, res) => {
+  const { nombre, password } = req.body;
+  if (!nombre || !password) {
+    return res.status(400).json({ error: 'Nombre y contraseña requeridos' });
+  }
+  const data = readAgents();
+  const agent = data.agents.find(
+    a => a.nombre.toLowerCase() === nombre.toLowerCase() && a.password === password
+  );
+  if (!agent) {
+    return res.status(401).json({ error: 'Credenciales incorrectas' });
+  }
+  res.json({ id: agent.id, nombre: agent.nombre, isAdmin: agent.isAdmin });
+});
+
+// GET /api/agents — list agents (admin only), passwords excluded
+app.get('/api/agents', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const data = readAgents();
+  const agents = data.agents.map(({ id, nombre, isAdmin }) => ({ id, nombre, isAdmin }));
+  res.json({ agents });
+});
+
+// POST /api/agents — add agent (admin only)
+app.post('/api/agents', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { nombre, password, isAdmin } = req.body;
+  if (!nombre || !password) {
+    return res.status(400).json({ error: 'Nombre y contraseña requeridos' });
+  }
+  const data = readAgents();
+  const exists = data.agents.some(a => a.nombre.toLowerCase() === nombre.toLowerCase());
+  if (exists) {
+    return res.status(400).json({ error: 'Ya existe un agente con ese nombre' });
+  }
+  const nextId = data.agents.reduce((m, a) => Math.max(m, a.id), 0) + 1;
+  const newAgent = { id: nextId, nombre, password, isAdmin: !!isAdmin };
+  data.agents.push(newAgent);
+  writeAgents(data);
+  res.json({ agent: { id: newAgent.id, nombre: newAgent.nombre, isAdmin: newAgent.isAdmin } });
+});
+
+// DELETE /api/agents/:id — remove agent (admin only, cannot remove self)
+app.delete('/api/agents/:id', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const targetId = Number(req.params.id);
+  if (targetId === admin.id) {
+    return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
+  }
+  const data = readAgents();
+  const before = data.agents.length;
+  data.agents = data.agents.filter(a => a.id !== targetId);
+  if (data.agents.length === before) {
+    return res.status(404).json({ error: 'Agente no encontrado' });
+  }
+  writeAgents(data);
+  res.json({ ok: true });
+});
+
 // GET /api/state — returns tier-999 clients + log, with ETag support
 app.get('/api/state', (req, res) => {
   const data = readData();
