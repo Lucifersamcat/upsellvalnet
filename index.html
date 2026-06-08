@@ -284,6 +284,16 @@
       } catch {}
     }
 
+    function setCampaniaSession(campaniaId) {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return;
+        const s = JSON.parse(raw);
+        s.campaniaId = campaniaId;
+        localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      } catch {}
+    }
+
     /* ============================================================
        LOGIN PAGE
     ============================================================ */
@@ -355,7 +365,7 @@
     /* ============================================================
        HEADER
     ============================================================ */
-    function Header({ stats, vista, setVista, onExport, onReset, onImport, session, onLogout, onAdmin }) {
+    function Header({ stats, vista, setVista, onExport, onReset, onImport, session, onLogout, onAdmin, campaigns, campania, onSelectCampania }) {
       return (
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-4 px-4 py-3 sm:px-6">
@@ -365,7 +375,9 @@
               </div>
               <div className="leading-tight">
                 <div className="text-[15px] font-extrabold tracking-tight text-slate-900">ValNet Wireless</div>
-                <div className="text-xs font-medium text-slate-500">Campaña Upsell · 20→40 Mbps</div>
+                <div className="text-xs font-medium text-slate-500">
+                  {campania ? campania.nombre : 'Sin campaña activa'}
+                </div>
               </div>
             </div>
 
@@ -380,6 +392,15 @@
             </nav>
 
             <div className="order-2 ml-auto flex items-center gap-2 sm:order-3">
+              <select
+                value={campania ? campania.id : ''}
+                onChange={e => onSelectCampania(e.target.value ? Number(e.target.value) : null)}
+                className="hidden rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-brand-500 sm:block">
+                <option value="">Sin campaña</option>
+                {(campaigns || []).map(c => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
               <span className="hidden text-xs font-semibold text-slate-500 sm:inline">Hola, {session.nombre}</span>
               {session.isAdmin && (
                 <button onClick={onAdmin}
@@ -445,7 +466,7 @@
       );
     }
 
-    function Dashboard({ clients, log, stats }) {
+    function Dashboard({ clients, log, stats, campania }) {
       const conteo = useMemo(() => {
         const o = {}; ORDEN_ESTADOS.forEach(e => o[e] = 0);
         clients.forEach(c => o[c.estado] = (o[c.estado]||0) + 1);
@@ -458,10 +479,16 @@
       return (
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
           <h2 className="mb-1 text-lg font-bold text-slate-900">Resumen de la campaña</h2>
-          <p className="mb-5 text-sm text-slate-500">Promoción 40/40 Mbps · primeros {3} meses a {RD(999)}, luego {RD(1300)}.</p>
+          <p className="mb-5 text-sm text-slate-500">
+            {campania
+              ? `${campania.nombre} · primeros ${campania.mesesPromo} meses a ${RD(campania.precioPromo)}, luego ${RD(campania.precioNuevo)}.`
+              : 'Sin campaña activa — selecciona una desde el encabezado.'}
+          </p>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard icon={Icon.Users} label="Clientes en lista" value={clients.length} sub="Plan actual 20/20 · $999" tone="brand" />
+            <StatCard icon={Icon.Users} label="Clientes en lista" value={clients.length}
+              sub={campania ? `Plan ${campania.planActual} · ${RD(campania.precioActual)}` : 'Todos los planes'}
+              tone="brand" />
             <StatCard icon={Icon.Phone} label="Llamadas hoy" value={stats.llamadasHoy} sub={fechaCorta(NOW())} tone="slate" />
             <StatCard icon={Icon.Check} label="Convertidos" value={stats.convertidos} sub={stats.tasa + '% de conversión'} tone="emerald" />
             <StatCard icon={Icon.Clock} label="Callbacks pendientes" value={conteo.callback} sub="Por volver a llamar" tone="amber" />
@@ -475,7 +502,9 @@
               </div>
               <div className="mt-3 text-4xl font-extrabold tracking-tight">{RD(stats.ingreso)}<span className="text-lg font-semibold text-brand-100">/mes</span></div>
               <div className="mt-2 text-sm text-brand-100">
-                {stats.convertidos} convertidos × {RD(301)} <span className="opacity-80">(a partir del mes 4)</span>
+                {campania
+                  ? `${stats.convertidos} convertidos × ${RD(campania.precioNuevo - campania.precioActual)} (mes ${campania.mesesPromo + 1} en adelante)`
+                  : `${stats.convertidos} convertidos`}
               </div>
               <div className="mt-4 rounded-xl bg-white/10 px-3 py-2 text-xs text-brand-50">
                 Proyección anualizada: <strong>{RD(stats.ingreso * 12)}</strong> en ingresos recurrentes.
@@ -569,30 +598,40 @@
     /* ============================================================
        LISTA DE CLIENTES
     ============================================================ */
-    function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session }) {
+    function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session, campania }) {
       const [filtro, setFiltro] = useState('todos');
       const [orden, setOrden] = useState('antiguos'); // antiguos | nuevos
       const [busqueda, setBusqueda] = useState('');
       const [modal, setModal] = useState(false);
 
+      const clientesFiltradosCampania = useMemo(() => {
+        if (!campania) return clients;
+        return clients.filter(c => {
+          const planMatch = !campania.planActual ||
+            (c.plan || '').toLowerCase() === campania.planActual.toLowerCase();
+          const zonaMatch = !campania.filtroZona ||
+            (c.direccion || '').toLowerCase().includes(campania.filtroZona.toLowerCase());
+          return planMatch && zonaMatch;
+        });
+      }, [clients, campania]);
+
       const conteo = useMemo(() => {
-        const o = { todos: clients.length };
+        const o = { todos: clientesFiltradosCampania.length };
         ORDEN_ESTADOS.forEach(e => o[e] = 0);
-        clients.forEach(c => o[c.estado]++);
+        clientesFiltradosCampania.forEach(c => o[c.estado] = (o[c.estado]||0) + 1);
         return o;
-      }, [clients]);
+      }, [clientesFiltradosCampania]);
 
       const visibles = useMemo(() => {
-        let arr = clients.filter(c => filtro === 'todos' || c.estado === filtro);
+        let r = filtro === 'todos'
+          ? clientesFiltradosCampania
+          : clientesFiltradosCampania.filter(c => c.estado === filtro);
         if (busqueda.trim()) {
           const q = busqueda.toLowerCase();
-          arr = arr.filter(c => c.nombre.toLowerCase().includes(q) || c.telefono.includes(q));
+          r = r.filter(c => c.nombre.toLowerCase().includes(q) || c.telefono.includes(q));
         }
-        arr = [...arr].sort((a,b) => orden === 'antiguos'
-          ? new Date(a.inicio) - new Date(b.inicio)
-          : new Date(b.inicio) - new Date(a.inicio));
-        return arr;
-      }, [clients, filtro, orden, busqueda]);
+        return [...r].sort((a, b) => new Date(a.inicio) - new Date(b.inicio));
+      }, [clientesFiltradosCampania, filtro, busqueda]);
 
       const chips = [['todos','Todos'], ...ORDEN_ESTADOS.map(e => [e, ESTADOS[e].label])];
 
@@ -710,7 +749,11 @@
               </table>
             </div>
           </div>
-          <p className="mt-3 text-xs text-slate-400">Mostrando {visibles.length} de {clients.length} clientes · ordenados por antigüedad (mayor lealtad primero).</p>
+          <p className="mt-3 text-xs text-slate-400">
+            Mostrando {visibles.length} de {clientesFiltradosCampania.length} clientes
+            {campania ? ` · campaña: ${campania.nombre}` : ` (${clients.length} total)`}
+            · ordenados por antigüedad.
+          </p>
         </div>
       );
     }
@@ -1077,6 +1120,13 @@
       const toastTimer = useRef(null);
 
       const [session, setSession] = useState(() => loadSession());
+      const [campaigns, setCampaigns] = useState([]);
+      const [campaniaId, setCampaniaId] = useState(() => {
+        const s = loadSession();
+        return s ? (s.campaniaId || null) : null;
+      });
+
+      const campania = campaigns.find(c => c.id === campaniaId) || null;
 
       // Renew session activity on any user interaction
       useEffect(() => {
@@ -1130,8 +1180,18 @@
         }
       }, []);
 
+      const fetchCampaigns = useCallback(async () => {
+        try {
+          const res = await fetch('/api/campaigns');
+          if (res.ok) {
+            const data = await res.json();
+            setCampaigns(data.campaigns || []);
+          }
+        } catch {}
+      }, []);
+
       // Initial load on mount
-      useEffect(() => { fetchState(); }, []);
+      useEffect(() => { fetchState(); fetchCampaigns(); }, []);
 
       // Auto-save on mutation (skip when state was set by LOAD)
       useEffect(() => {
@@ -1150,13 +1210,14 @@
         const convertidos = state.clients.filter(c => c.estado === 'convertido').length;
         const total = state.clients.length;
         const llamadasHoy = state.log.filter(l => esHoy(l.at)).length;
+        const uplift = campania ? Math.max(0, campania.precioNuevo - campania.precioActual) : 0;
         return {
           convertidos,
           tasa: total ? Math.round(convertidos/total*100) : 0,
-          ingreso: convertidos * 301,
+          ingreso: convertidos * uplift,
           llamadasHoy,
         };
-      }, [state]);
+      }, [state, campania]);
 
       const activeCliente = state.clients.find(c => c.id === activeId);
 
@@ -1189,6 +1250,11 @@
       const onRevertir = (id) => {
         dispatch({ type: 'REVERTIR_ESTADO', id });
         showToast('Estado revertido a pendiente');
+      };
+
+      const onSelectCampania = (id) => {
+        setCampaniaId(id);
+        setCampaniaSession(id);
       };
 
       const onNota = (id, notas) => dispatch({ type: 'NOTA', id, notas });
@@ -1336,15 +1402,17 @@
           <Header stats={stats} vista={vista === 'llamada' ? 'lista' : vista}
             setVista={(v) => { setVista(v); setActiveId(null); fetchState(); touchSession(); }}
             onExport={exportarCSV} onReset={onReset} onImport={importarCSV}
-            session={session} onLogout={handleLogout} onAdmin={onAdmin} />
+            session={session} onLogout={handleLogout} onAdmin={onAdmin}
+            campaigns={campaigns} campania={campania} onSelectCampania={onSelectCampania} />
 
-          {vista === 'dashboard' && <Dashboard clients={state.clients} log={state.log} stats={stats} />}
-          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} />}
-          {vista === 'admin' && session.isAdmin && <AdminView session={session} />}
+          {vista === 'dashboard' && <Dashboard clients={state.clients} log={state.log} stats={stats} campania={campania} />}
+          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} campania={campania} />}
+          {vista === 'admin' && session.isAdmin && <AdminView session={session} onCampaignsChange={fetchCampaigns} />}
           {vista === 'llamada' && activeCliente && (
             <CallPanel cliente={activeCliente} onResult={onResult} onNota={onNota}
               onBack={() => { setVista('lista'); setActiveId(null); }}
-              hayNext={!!siguientePendiente(activeCliente.id)} />
+              hayNext={!!siguientePendiente(activeCliente.id)}
+              campania={campania} />
           )}
 
           <Toast toast={toast} />
