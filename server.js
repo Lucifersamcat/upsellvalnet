@@ -1,89 +1,178 @@
+require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const bcrypt = require('bcrypt');
 
 const app = express();
-const PORT = 4321;
-const DATA_FILE = path.join(__dirname, 'data.json');
+const PORT = process.env.PORT || 4321;
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : __dirname;
+const DATA_FILE = path.join(DATA_DIR, 'data.json');
+const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
+const CAMPAIGNS_FILE = path.join(DATA_DIR, 'campaigns.json');
 const ACTIVE_TIER = '999';
+const SALT_ROUNDS = 10;
+const MIN_PASSWORD_LEN = 6;
+const SESSION_TTL = 5_400_000; // 90 min
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 min
 
 app.use(express.json({ limit: '10mb' }));
+
+function log(msg) {
+  console.log(`[${new Date().toISOString()}] ${msg}`);
+}
 
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-function readData() {
-  if (!fs.existsSync(DATA_FILE)) {
-    const seed = { version: 1, clients: [], log: [] };
-    fs.writeFileSync(DATA_FILE, JSON.stringify(seed, null, 2));
+/* ----------------------------------------------------------------
+   Generic JSON file helpers — DRY + crash-safe JSON.parse
+---------------------------------------------------------------- */
+function readJsonFile(filePath, seed) {
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, JSON.stringify(seed, null, 2));
     return seed;
   }
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-}
-
-function writeData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
-
-const AGENTS_FILE = path.join(__dirname, 'agents.json');
-
-function readAgents() {
-  if (!fs.existsSync(AGENTS_FILE)) {
-    const seed = { agents: [] };
-    fs.writeFileSync(AGENTS_FILE, JSON.stringify(seed, null, 2));
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    console.error(`JSON corrupto en ${filePath}, usando semilla`);
     return seed;
   }
-  return JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8'));
 }
 
-function writeAgents(data) {
-  fs.writeFileSync(AGENTS_FILE, JSON.stringify(data, null, 2));
+function writeJsonFile(filePath, data) {
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
-const CAMPAIGNS_FILE = path.join(__dirname, 'campaigns.json');
+const readData      = () => readJsonFile(DATA_FILE,      { version: 1, clients: [], log: [] });
+const writeData     = (d) => writeJsonFile(DATA_FILE, d);
+const readAgents    = () => readJsonFile(AGENTS_FILE,    { agents: [] });
+const writeAgents   = (d) => writeJsonFile(AGENTS_FILE, d);
+const readCampaigns = () => readJsonFile(CAMPAIGNS_FILE, { campaigns: [] });
+const writeCampaigns = (d) => writeJsonFile(CAMPAIGNS_FILE, d);
 
-function readCampaigns() {
-  if (!fs.existsSync(CAMPAIGNS_FILE)) {
-    const seed = { campaigns: [] };
-    fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(seed, null, 2));
-    return seed;
+/* ----------------------------------------------------------------
+   In-memory session store  { token → { agentId, nombre, isAdmin, expiresAt } }
+   Login rate limiter      { ip → { attempts, resetAt } }
+---------------------------------------------------------------- */
+const sessions = new Map();
+const loginAttempts = new Map();
+
+function purgeExpiredSessions() {
+  const now = Date.now();
+  for (const [token, s] of sessions) {
+    if (now > s.expiresAt) sessions.delete(token);
   }
-  return JSON.parse(fs.readFileSync(CAMPAIGNS_FILE, 'utf8'));
 }
 
-function writeCampaigns(data) {
-  fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(data, null, 2));
+/* ----------------------------------------------------------------
+   Auth helpers
+---------------------------------------------------------------- */
+function requireAuth(req, res) {
+  const token = req.headers['x-auth-token'];
+  if (!token) {
+    res.status(401).json({ error: 'No autenticado' });
+    return null;
+  }
+  purgeExpiredSessions();
+  const session = sessions.get(token);
+  if (!session) {
+    res.status(401).json({ error: 'Sesión inválida o expirada' });
+    return null;
+  }
+  session.expiresAt = Date.now() + SESSION_TTL; // renew on activity
+  return session;
 }
 
 function requireAdmin(req, res) {
-  const agentId = Number(req.headers['x-agent-id']);
-  const data = readAgents();
-  const agent = data.agents.find(a => a.id === agentId);
-  if (!agent || !agent.isAdmin) {
+  const session = requireAuth(req, res);
+  if (!session) return null;
+  if (!session.isAdmin) {
     res.status(403).json({ error: 'Acceso denegado' });
     return null;
   }
-  return agent;
+  return session;
 }
 
-// POST /api/login — verify credentials
+/* ----------------------------------------------------------------
+   POST /api/login — verify credentials, return session token
+---------------------------------------------------------------- */
 app.post('/api/login', (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+
+  // Rate limit: max LOGIN_MAX_ATTEMPTS failed attempts per LOGIN_LOCKOUT_MS window
+  const record = loginAttempts.get(ip);
+  if (record) {
+    if (now < record.resetAt && record.attempts >= LOGIN_MAX_ATTEMPTS) {
+      const waitMin = Math.ceil((record.resetAt - now) / 60000);
+      return res.status(429).json({ error: `Demasiados intentos. Intenta en ${waitMin} minutos.` });
+    }
+    if (now >= record.resetAt) loginAttempts.delete(ip);
+  }
+
   const { nombre, password } = req.body;
   if (!nombre || !password) {
     return res.status(400).json({ error: 'Nombre y contraseña requeridos' });
   }
   const data = readAgents();
-  const agent = data.agents.find(
-    a => a.nombre.toLowerCase() === nombre.toLowerCase() && a.password === password
-  );
-  if (!agent) {
-    return res.status(401).json({ error: 'Credenciales incorrectas' });
+  const agent = data.agents.find(a => a.nombre.toLowerCase() === nombre.toLowerCase());
+
+  const recordFail = () => {
+    const r = loginAttempts.get(ip) || { attempts: 0, resetAt: now + LOGIN_LOCKOUT_MS };
+    r.attempts += 1;
+    loginAttempts.set(ip, r);
+  };
+
+  if (!agent) { recordFail(); return res.status(401).json({ error: 'Credenciales incorrectas' }); }
+
+  const isHashed = /^\$2[ab]\$/.test(agent.password);
+  let match;
+  if (isHashed) {
+    match = bcrypt.compareSync(password, agent.password);
+  } else {
+    // Legacy plain-text: compare and auto-upgrade on success
+    match = password === agent.password;
+    if (match) {
+      agent.password = bcrypt.hashSync(password, SALT_ROUNDS);
+      writeAgents(data);
+    }
   }
-  res.json({ id: agent.id, nombre: agent.nombre, isAdmin: agent.isAdmin });
+
+  if (!match) { recordFail(); return res.status(401).json({ error: 'Credenciales incorrectas' }); }
+
+  loginAttempts.delete(ip); // clear on success
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions.set(token, {
+    agentId: agent.id,
+    nombre: agent.nombre,
+    isAdmin: agent.isAdmin,
+    expiresAt: Date.now() + SESSION_TTL,
+  });
+  log(`LOGIN  ${agent.nombre} (id=${agent.id}) from ${ip}`);
+  res.json({ id: agent.id, nombre: agent.nombre, isAdmin: agent.isAdmin, token });
 });
 
-// GET /api/agents — list agents (admin only), passwords excluded
+/* ----------------------------------------------------------------
+   POST /api/logout — invalidate session token
+---------------------------------------------------------------- */
+app.post('/api/logout', (req, res) => {
+  const token = req.headers['x-auth-token'];
+  if (token) {
+    const s = sessions.get(token);
+    if (s) log(`LOGOUT ${s.nombre} (id=${s.agentId})`);
+    sessions.delete(token);
+  }
+  res.json({ ok: true });
+});
+
+/* ----------------------------------------------------------------
+   GET /api/agents — list agents (admin only)
+---------------------------------------------------------------- */
 app.get('/api/agents', (req, res) => {
   if (!requireAdmin(req, res)) return;
   const data = readAgents();
@@ -91,111 +180,133 @@ app.get('/api/agents', (req, res) => {
   res.json({ agents });
 });
 
-// POST /api/agents — add agent (admin only)
+/* ----------------------------------------------------------------
+   POST /api/agents — add agent (admin only)
+---------------------------------------------------------------- */
 app.post('/api/agents', (req, res) => {
   if (!requireAdmin(req, res)) return;
   const { nombre, password, isAdmin } = req.body;
   if (!nombre || !password) {
     return res.status(400).json({ error: 'Nombre y contraseña requeridos' });
   }
+  if (String(password).length < MIN_PASSWORD_LEN) {
+    return res.status(400).json({ error: `La contraseña debe tener al menos ${MIN_PASSWORD_LEN} caracteres` });
+  }
   const data = readAgents();
-  const exists = data.agents.some(a => a.nombre.toLowerCase() === nombre.toLowerCase());
-  if (exists) {
+  if (data.agents.some(a => a.nombre.toLowerCase() === nombre.toLowerCase())) {
     return res.status(400).json({ error: 'Ya existe un agente con ese nombre' });
   }
   const nextId = data.agents.reduce((m, a) => Math.max(m, a.id), 0) + 1;
-  const newAgent = { id: nextId, nombre, password, isAdmin: !!isAdmin };
+  const hashedPassword = bcrypt.hashSync(String(password), SALT_ROUNDS);
+  const newAgent = { id: nextId, nombre, password: hashedPassword, isAdmin: !!isAdmin };
   data.agents.push(newAgent);
   writeAgents(data);
+  log(`AGENT_CREATE  by=${session.nombre} new=${nombre} isAdmin=${!!isAdmin}`);
   res.json({ agent: { id: newAgent.id, nombre: newAgent.nombre, isAdmin: newAgent.isAdmin } });
 });
 
-// DELETE /api/agents/:id — remove agent (admin only, cannot remove self)
+/* ----------------------------------------------------------------
+   DELETE /api/agents/:id — remove agent (admin only)
+---------------------------------------------------------------- */
 app.delete('/api/agents/:id', (req, res) => {
   const admin = requireAdmin(req, res);
   if (!admin) return;
   const targetId = Number(req.params.id);
-  if (targetId === admin.id) {
+  if (Number.isNaN(targetId)) return res.status(400).json({ error: 'ID inválido' });
+  if (targetId === admin.agentId) {
     return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
   }
   const data = readAgents();
   const before = data.agents.length;
+  const target = data.agents.find(a => a.id === targetId);
   data.agents = data.agents.filter(a => a.id !== targetId);
   if (data.agents.length === before) {
     return res.status(404).json({ error: 'Agente no encontrado' });
   }
   writeAgents(data);
+  log(`AGENT_DELETE  by=${admin.nombre} deleted=${target?.nombre} (id=${targetId})`);
   res.json({ ok: true });
 });
 
-// GET /api/campaigns — all agents can read
-app.get('/api/campaigns', (_req, res) => {
+/* ----------------------------------------------------------------
+   GET /api/campaigns — any authenticated agent
+---------------------------------------------------------------- */
+app.get('/api/campaigns', (req, res) => {
+  if (!requireAuth(req, res)) return;
   const data = readCampaigns();
   res.json({ campaigns: data.campaigns });
 });
 
-// POST /api/campaigns — admin only
-app.post('/api/campaigns', (req, res) => {
-  if (!requireAdmin(req, res)) return;
-  const { nombre, planActual, planNuevo, precioActual, precioNuevo, precioPromo, mesesPromo, filtroZona } = req.body;
+/* ----------------------------------------------------------------
+   Shared campaign field parser + validator
+---------------------------------------------------------------- */
+function parseCampaignBody(body, res) {
+  const { nombre, planActual, planNuevo, precioActual, precioNuevo, precioPromo, mesesPromo, filtroZona } = body;
   if (!nombre || !planActual || !planNuevo) {
-    return res.status(400).json({ error: 'Nombre, planActual y planNuevo son requeridos' });
+    res.status(400).json({ error: 'Nombre, planActual y planNuevo son requeridos' });
+    return null;
   }
   if (planActual === planNuevo) {
-    return res.status(400).json({ error: 'El plan actual y el plan nuevo deben ser diferentes' });
+    res.status(400).json({ error: 'El plan actual y el plan nuevo deben ser diferentes' });
+    return null;
   }
+  const prices = {
+    precioActual: Number(precioActual) || 0,
+    precioNuevo:  Number(precioNuevo)  || 0,
+    precioPromo:  Number(precioPromo)  || 0,
+    mesesPromo:   Number(mesesPromo)   || 0,
+  };
+  for (const [key, val] of Object.entries(prices)) {
+    if (val < 0) {
+      res.status(400).json({ error: `El campo ${key} no puede ser negativo` });
+      return null;
+    }
+  }
+  return { nombre: String(nombre).trim(), planActual, planNuevo, ...prices, filtroZona: filtroZona || null };
+}
+
+/* ----------------------------------------------------------------
+   POST /api/campaigns — admin only
+---------------------------------------------------------------- */
+app.post('/api/campaigns', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const fields = parseCampaignBody(req.body, res);
+  if (!fields) return;
   const data = readCampaigns();
-  if (data.campaigns.some(c => c.nombre.toLowerCase() === nombre.toLowerCase())) {
+  if (data.campaigns.some(c => c.nombre.toLowerCase() === fields.nombre.toLowerCase())) {
     return res.status(400).json({ error: 'Ya existe una campaña con ese nombre' });
   }
   const nextId = data.campaigns.reduce((m, c) => Math.max(m, c.id), 0) + 1;
-  const newC = {
-    id: nextId,
-    nombre,
-    planActual,
-    planNuevo,
-    precioActual: Number(precioActual) || 0,
-    precioNuevo: Number(precioNuevo) || 0,
-    precioPromo: Number(precioPromo) || 0,
-    mesesPromo: Number(mesesPromo) || 0,
-    filtroZona: filtroZona || null,
-  };
+  const newC = { id: nextId, ...fields };
   data.campaigns.push(newC);
   writeCampaigns(data);
   res.json({ campaign: newC });
 });
 
-// PUT /api/campaigns/:id — admin only
+/* ----------------------------------------------------------------
+   PUT /api/campaigns/:id — admin only
+---------------------------------------------------------------- */
 app.put('/api/campaigns/:id', (req, res) => {
   if (!requireAdmin(req, res)) return;
   const id = Number(req.params.id);
-  const { nombre, planActual, planNuevo, precioActual, precioNuevo, precioPromo, mesesPromo, filtroZona } = req.body;
-  if (!nombre || !planActual || !planNuevo) {
-    return res.status(400).json({ error: 'Nombre, planActual y planNuevo son requeridos' });
-  }
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+  const fields = parseCampaignBody(req.body, res);
+  if (!fields) return;
   const data = readCampaigns();
   const idx = data.campaigns.findIndex(c => c.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Campaña no encontrada' });
-  data.campaigns[idx] = {
-    ...data.campaigns[idx],
-    id,
-    nombre,
-    planActual,
-    planNuevo,
-    precioActual: Number(precioActual) || 0,
-    precioNuevo: Number(precioNuevo) || 0,
-    precioPromo: Number(precioPromo) || 0,
-    mesesPromo: Number(mesesPromo) || 0,
-    filtroZona: filtroZona || null,
-  };
+  data.campaigns[idx] = { ...data.campaigns[idx], id, ...fields };
   writeCampaigns(data);
   res.json({ campaign: data.campaigns[idx] });
 });
 
-// DELETE /api/campaigns/:id — admin only
+/* ----------------------------------------------------------------
+   DELETE /api/campaigns/:id — admin only
+---------------------------------------------------------------- */
 app.delete('/api/campaigns/:id', (req, res) => {
   if (!requireAdmin(req, res)) return;
   const id = Number(req.params.id);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
   const data = readCampaigns();
   const before = data.campaigns.length;
   data.campaigns = data.campaigns.filter(c => c.id !== id);
@@ -206,49 +317,53 @@ app.delete('/api/campaigns/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /api/state — returns tier-999 clients + log, with ETag support
+/* ----------------------------------------------------------------
+   GET /api/state — returns tier-999 clients + log, ETag support
+---------------------------------------------------------------- */
 app.get('/api/state', (req, res) => {
+  if (!requireAuth(req, res)) return;
   const data = readData();
   const etag = `"v${data.version}"`;
-
   if (req.headers['if-none-match'] === etag) {
     return res.status(304).end();
   }
-
   const clients = data.clients.filter(c => c.tier === ACTIVE_TIER);
   res.setHeader('ETag', etag);
   res.json({ version: data.version, clients, log: data.log });
 });
 
-// POST /api/state — save tier-999 changes, preserve other tiers
+/* ----------------------------------------------------------------
+   POST /api/state — save tier-999 changes, preserve other tiers
+---------------------------------------------------------------- */
 app.post('/api/state', (req, res) => {
+  if (!requireAuth(req, res)) return;
   const { clients, log } = req.body;
   const data = readData();
-
   const otherClients = data.clients.filter(c => c.tier !== ACTIVE_TIER);
   data.clients = [...otherClients, ...clients];
   data.log = log;
   data.version += 1;
-
   writeData(data);
   res.json({ version: data.version });
 });
 
-// POST /api/import — bulk import clients; skips duplicates by id
+/* ----------------------------------------------------------------
+   POST /api/import — bulk import; skips duplicates by id
+---------------------------------------------------------------- */
 app.post('/api/import', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
   const incoming = req.body;
   if (!Array.isArray(incoming)) {
     return res.status(400).json({ error: 'Body must be an array of clients' });
   }
-
   const data = readData();
   const existingIds = new Set(data.clients.map(c => String(c.id)));
   const toAdd = incoming.filter(c => !existingIds.has(String(c.id)));
-
   data.clients = [...data.clients, ...toAdd];
   data.version += 1;
   writeData(data);
-
+  log(`IMPORT  by=${admin.nombre} added=${toAdd.length} skipped=${incoming.length - toAdd.length}`);
   res.json({ added: toAdd.length, skipped: incoming.length - toAdd.length });
 });
 
