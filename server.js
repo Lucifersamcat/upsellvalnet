@@ -19,14 +19,17 @@ const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 min
 
 app.use(express.json({ limit: '10mb' }));
-app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
+
+// Serve the Vite production build from dist/ (run `npm run build` first).
+const DIST_DIR = path.join(__dirname, 'dist');
+app.use(express.static(DIST_DIR));
 
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
 app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(DIST_DIR, 'index.html'));
 });
 
 /* ----------------------------------------------------------------

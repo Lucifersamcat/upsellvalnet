@@ -6,3 +6,4 @@ data.json
 agents.json
 campaigns.json
 vendor/
+dist/

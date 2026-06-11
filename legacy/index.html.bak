@@ -1,0 +1,1761 @@
+<!DOCTYPE html>
+<html lang="es-DO">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ValNet Wireless · Campaña Upsell 40/40</title>
+
+  <!-- Tailwind CSS (Play CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React + ReactDOM -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Babel para compilar JSX en el navegador -->
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            brand: {
+              50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',
+              500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af',900:'#1e3a8a'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    html, body { font-family: 'Inter', system-ui, sans-serif; }
+    body { background-color: #f1f5f9; }
+    .no-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+    .no-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    /* Evita el flash de contenido sin compilar */
+    #root:empty::after {
+      content: 'Cargando herramienta…';
+      display: grid; place-items: center; height: 100vh;
+      color: #64748b; font-size: 14px;
+    }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .toast-in { animation: toastIn .18s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useReducer, useEffect, useMemo, useRef, useCallback } = React;
+
+    /* ============================================================
+       CONSTANTES DE NEGOCIO
+    ============================================================ */
+    const PLANES = [
+      { nombre: "Conectao'",  precio: 999  },
+      { nombre: 'Doméstico',  precio: 1300 },
+      { nombre: 'Estudio',    precio: 1630 },
+      { nombre: 'Emprende',   precio: 1899 },
+      { nombre: 'Cinemática', precio: 2550 },
+      { nombre: 'Negocio',    precio: 2999 },
+      { nombre: 'Gamer',      precio: 3499 },
+      { nombre: 'Galáctico',  precio: 3800 },
+    ];
+
+    // Returns the PLANES entry for the given plan name (case-insensitive), or null
+    function planInfo(nombre) {
+      if (!nombre) return null;
+      return PLANES.find(p => p.nombre.toLowerCase() === nombre.toLowerCase()) || null;
+    }
+
+    const RD = (n) => 'RD$' + Number(n).toLocaleString('es-DO');
+
+    /* ============================================================
+       ESTADOS DE CLIENTE
+    ============================================================ */
+    const ESTADOS = {
+      pendiente:     { label: 'Pendiente',     chip: 'bg-slate-100 text-slate-700 ring-slate-200',  dot: 'bg-slate-400' },
+      llamado:       { label: 'Llamado',       chip: 'bg-sky-100 text-sky-800 ring-sky-200',        dot: 'bg-sky-500' },
+      convertido:    { label: 'Convertido',    chip: 'bg-emerald-100 text-emerald-800 ring-emerald-200', dot: 'bg-emerald-500' },
+      no_interesado: { label: 'No interesado', chip: 'bg-rose-100 text-rose-800 ring-rose-200',      dot: 'bg-rose-500' },
+      callback:      { label: 'Callback',      chip: 'bg-amber-100 text-amber-900 ring-amber-200',   dot: 'bg-amber-500' },
+    };
+    const ORDEN_ESTADOS = ['pendiente','llamado','convertido','no_interesado','callback'];
+
+    /* ============================================================
+       DATOS INICIALES (editables) — clientes del plan $999
+    ============================================================ */
+    const NOW = () => new Date().toISOString();
+
+
+    /* ============================================================
+       UTILIDADES DE FECHA
+    ============================================================ */
+    function mesesEntre(d1, d2) {
+      let m = (d2.getFullYear()-d1.getFullYear())*12 + (d2.getMonth()-d1.getMonth());
+      if (d2.getDate() < d1.getDate()) m -= 1;
+      return Math.max(0, m);
+    }
+    function antiguedad(inicioISO) {
+      const m = mesesEntre(new Date(inicioISO), new Date());
+      const y = Math.floor(m/12), mm = m%12;
+      if (y === 0) return mm + (mm === 1 ? ' mes' : ' meses');
+      if (mm === 0) return y + (y === 1 ? ' año' : ' años');
+      return y + (y===1?' año':' años') + ' ' + mm + (mm===1?' mes':' meses');
+    }
+    function fechaCorta(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleDateString('es-DO', { day:'2-digit', month:'short', year:'numeric' });
+    }
+    function fechaHora(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString('es-DO', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+    }
+    function esHoy(iso) {
+      if (!iso) return false;
+      const d = new Date(iso), h = new Date();
+      return d.getFullYear()===h.getFullYear() && d.getMonth()===h.getMonth() && d.getDate()===h.getDate();
+    }
+    function esVencido(fechaStr) {
+      if (!fechaStr) return false;
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      const d = new Date(fechaStr + 'T00:00:00');
+      return d <= hoy;
+    }
+    function fechaMasNMeses(n) {
+      const d = new Date();
+      d.setMonth(d.getMonth() + n);
+      return d.toISOString().slice(0, 10);
+    }
+    function telLink(telefono) {
+      const digits = telefono.replace(/\D/g,'');
+      return 'tel:+1' + digits;
+    }
+
+    /* ============================================================
+       REDUCER
+    ============================================================ */
+    function init() {
+      return { clients: [], log: [] };
+    }
+
+    function reducer(state, action) {
+      switch (action.type) {
+        case 'RESULTADO': {
+          const { id, resultado, callbackAt } = action;
+          const at = NOW();
+          const clients = state.clients.map(c => c.id === id
+            ? { ...c, estado: resultado, lastContact: at, callbackAt: resultado === 'callback' ? (callbackAt || null) : null }
+            : c);
+          const cli = state.clients.find(c => c.id === id);
+          const log = [{ id, nombre: cli ? cli.nombre : '', resultado, at }, ...state.log];
+          return { ...state, clients, log };
+        }
+        case 'NOTA': {
+          const clients = state.clients.map(c => c.id === action.id ? { ...c, notas: action.notas } : c);
+          return { ...state, clients };
+        }
+        case 'AGREGAR': {
+          const nextId = state.clients.reduce((m,c)=>Math.max(m,c.id),0) + 1;
+          const nuevo = {
+            id: nextId, ...action.cliente, tier: '999',
+            plan: action.cliente.plan || "Conectao'",
+            estado:'pendiente', notas:'', callbackAt:null, lastContact:null,
+            recordatorio: null,
+          };
+          return { ...state, clients: [...state.clients, nuevo] };
+        }
+        case 'RESET':
+          return { clients: [], log: [] };
+        case 'LOAD':
+          return { clients: action.payload.clients, log: action.payload.log };
+        case 'LIMPIAR': {
+          const clients = state.clients.map(c => ({ ...c, estado:'pendiente', notas:'', callbackAt:null, lastContact:null }));
+          return { clients, log: [] };
+        }
+        case 'TOMAR_CLIENTE': {
+          const { clientId, agentId, agentNombre } = action;
+          const clients = state.clients.map(c =>
+            c.id === clientId ? { ...c, agentId, agentNombre } : c
+          );
+          return { ...state, clients };
+        }
+        case 'ELIMINAR_CLIENTE':
+          return { ...state, clients: state.clients.filter(c => c.id !== action.id) };
+        case 'REVERTIR_ESTADO': {
+          const clients = state.clients.map(c =>
+            c.id === action.id ? { ...c, estado: 'pendiente', callbackAt: null, lastContact: null } : c
+          );
+          return { ...state, clients };
+        }
+        case 'SET_RECORDATORIO': {
+          const { id, fecha, nota } = action;
+          const clients = state.clients.map(c =>
+            c.id === id ? { ...c, recordatorio: { fecha, nota } } : c
+          );
+          return { ...state, clients };
+        }
+        case 'CLEAR_RECORDATORIO': {
+          const clients = state.clients.map(c =>
+            c.id === action.id ? { ...c, recordatorio: null } : c
+          );
+          return { ...state, clients };
+        }
+        default:
+          return state;
+      }
+    }
+
+    /* ============================================================
+       ICONOS (SVG inline)
+    ============================================================ */
+    const Icon = {
+      Signal: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M2 20h.01M7 20v-4M12 20v-8M17 20V8M22 4v16"/></svg>),
+      Phone: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>),
+      Pin: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>),
+      Calendar: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>),
+      Check: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M20 6 9 17l-5-5"/></svg>),
+      X: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18 6 6 18M6 6l12 12"/></svg>),
+      Clock: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>),
+      PhoneOff: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><path d="M23 1 1 23"/></svg>),
+      Download: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>),
+      Arrow: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M19 12H5M12 19l-7-7 7-7"/></svg>),
+      Search: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>),
+      Sort: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M11 5h10M11 9h7M11 13h4M3 17l3 3 3-3M6 18V4"/></svg>),
+      Plus: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M12 5v14M5 12h14"/></svg>),
+      Chart: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></svg>),
+      Users: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>),
+      Money: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>),
+      ChevronDown: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="m6 9 6 6 6-6"/></svg>),
+      Upload: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>),
+      Bell: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>),
+      Pencil: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>),
+    };
+
+    /* ============================================================
+       GUIÓN Y OBJECIONES
+    ============================================================ */
+    function makeGuion(campania) {
+      const planA = campania ? campania.planActual : "Conectao'";
+      const planN = campania ? campania.planNuevo  : 'Doméstico';
+      const promo  = campania ? RD(campania.precioPromo) : RD(999);
+      const precN  = campania ? RD(campania.precioNuevo) : RD(1300);
+      const meses  = campania ? campania.mesesPromo : 3;
+      return [
+        { paso: 1, titulo: 'Apertura',
+          texto: 'Buenas [tardes/noches], ¿hablo con [nombre del cliente]? Le llamo de ValNet, soy [nombre del agente]. Le llamo porque usted es uno de nuestros clientes y tenemos una promoción exclusiva para usted — no le va a costar nada adicional.' },
+        { paso: 2, titulo: 'La oferta',
+          texto: `Queremos subirle el plan de ${planA} a ${planN} — más velocidad — y usted sigue pagando los mismos ${promo} durante los próximos ${meses} meses. No hay instalación, no hay trámite, lo activamos hoy mismo.` },
+        { paso: 3, titulo: `Transparencia mes ${meses + 1}`,
+          texto: `A partir del mes ${meses + 1}, el plan ${planN} queda en ${precN}. Pero si en ese momento usted prefiere regresar al plan anterior, sin problema — usted decide. Lo importante es que pruebe la diferencia sin riesgo.` },
+        { paso: 4, titulo: 'Cierre',
+          texto: '¿Le parece bien que lo activemos ahora mismo?',
+          nota: 'Pregunta directa. Esperar respuesta sin agregar más.' },
+      ];
+    }
+
+    const OBJECIONES = [
+      { q: '"¿Y después me van a cobrar más sin avisarme?"', a: 'No — le vamos a enviar un mensaje avisándole un mes antes de que termine la promoción para que usted decida. Sin sorpresas.' },
+      { q: '"Ahora mismo no necesito más velocidad"', a: 'Entiendo, pero como es sin costo y sin cambiar nada de su contrato, no pierde nada probándolo. Si no nota diferencia, igual puede quedarse como está al mes 4.' },
+      { q: '"Déjame pensarlo"', a: 'Claro, no hay presión. ¿Le puedo llamar mañana a esta misma hora? La oferta está disponible esta semana solamente.' },
+    ];
+
+    /* ============================================================
+       COMPONENTES PEQUEÑOS
+    ============================================================ */
+    function Badge({ estado }) {
+      const e = ESTADOS[estado] || ESTADOS.pendiente;
+      return (
+        <span className={'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ' + e.chip}>
+          <span className={'h-1.5 w-1.5 rounded-full ' + e.dot}></span>{e.label}
+        </span>
+      );
+    }
+
+    function Toast({ toast }) {
+      if (!toast) return null;
+      const tone = toast.tone === 'ok' ? 'bg-emerald-600' : toast.tone === 'warn' ? 'bg-amber-600' : toast.tone === 'err' ? 'bg-rose-600' : 'bg-slate-800';
+      const ToastIcon = toast.tone === 'err' ? Icon.X : toast.tone === 'warn' ? Icon.Clock : Icon.Check;
+      return (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+          <div className={'toast-in flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white shadow-lg ' + tone}>
+            <ToastIcon className="h-4 w-4" />{toast.msg}
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       SESSION HELPERS
+    ============================================================ */
+    const SESSION_KEY = 'valnet_session';
+    const SESSION_TIMEOUT = 5_400_000; // 90 min in ms
+
+    function loadSession() {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return null;
+        const s = JSON.parse(raw);
+        if (Date.now() - s.lastActivity > SESSION_TIMEOUT) {
+          localStorage.removeItem(SESSION_KEY);
+          return null;
+        }
+        return s;
+      } catch { return null; }
+    }
+
+    function saveSession(session) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, lastActivity: Date.now() }));
+    }
+
+    function touchSession() {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return;
+        const s = JSON.parse(raw);
+        s.lastActivity = Date.now();
+        localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      } catch {}
+    }
+
+    function setCampaniaSession(campaniaId) {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return;
+        const s = JSON.parse(raw);
+        s.campaniaId = campaniaId;
+        localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      } catch {}
+    }
+
+    /* ============================================================
+       LOGIN PAGE
+    ============================================================ */
+    function LoginPage({ onLogin }) {
+      const [nombre, setNombre] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+          const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nombre: nombre.trim(), password }),
+          });
+          const data = await res.json();
+          if (!res.ok) { setError(data.error || 'Error al iniciar sesión'); return; }
+          const session = { id: data.id, nombre: data.nombre, isAdmin: data.isAdmin, token: data.token };
+          saveSession(session);
+          onLogin(session);
+        } catch {
+          setError('No se pudo conectar al servidor');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 grid place-items-center bg-slate-100">
+          <div className="w-full max-w-sm px-4">
+            <div className="mb-6 text-center">
+              <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-brand-600 to-sky-400 text-white shadow-lg">
+                <Icon.Signal className="h-7 w-7" />
+              </div>
+              <div className="text-xl font-extrabold tracking-tight text-slate-900">ValNet Wireless</div>
+              <div className="text-sm text-slate-500">ValNet Wireless · Gestión de Campañas</div>
+            </div>
+            <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-4 text-base font-bold text-slate-900">Iniciar sesión</h2>
+              <div className="space-y-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">Nombre</span>
+                  <input autoFocus type="text" value={nombre} onChange={e => setNombre(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                    placeholder="Tu nombre de agente" />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">Contraseña</span>
+                  <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                    placeholder="••••••••" />
+                </label>
+              </div>
+              {error && <p className="mt-3 text-xs font-semibold text-rose-600">{error}</p>}
+              <button type="submit" disabled={loading || !nombre.trim() || !password}
+                className="mt-4 w-full rounded-xl bg-brand-600 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-40">
+                {loading ? 'Verificando…' : 'Entrar'}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       HEADER
+    ============================================================ */
+    function Header({ stats, vista, setVista, onExport, onReset, onImport, session, onLogout, onAdmin, campaigns, campania, onSelectCampania, recordatoriosCount }) {
+      return (
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-4 px-4 py-3 sm:px-6">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-brand-600 to-sky-400 text-white shadow-sm">
+                <Icon.Signal className="h-5 w-5" />
+              </div>
+              <div className="leading-tight">
+                <div className="text-[15px] font-extrabold tracking-tight text-slate-900">ValNet Wireless</div>
+                <div className="text-xs font-medium text-slate-500">
+                  {campania ? campania.nombre : 'Sin campaña activa'}
+                </div>
+              </div>
+            </div>
+
+            <nav className="order-3 flex w-full gap-1 rounded-xl bg-slate-100 p-1 sm:order-2 sm:ml-4 sm:w-auto">
+              {[['lista','Clientes', Icon.Users], ['dashboard','Dashboard', Icon.Chart]].map(([id, label, I]) => (
+                <button key={id} onClick={() => setVista(id)}
+                  className={'flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-1.5 text-sm font-semibold transition sm:flex-none ' +
+                    (vista === id ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-800')}>
+                  <I className="h-4 w-4" />{label}
+                </button>
+              ))}
+            </nav>
+
+            <div className="order-2 ml-auto flex items-center gap-2 sm:order-3">
+              <select
+                value={campania ? campania.id : ''}
+                onChange={e => onSelectCampania(e.target.value ? Number(e.target.value) : null)}
+                className="hidden rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-brand-500 sm:block">
+                <option value="">Sin campaña</option>
+                {(campaigns || []).map(c => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+              {recordatoriosCount > 0 && (
+                <div className="relative flex items-center justify-center rounded-lg border border-amber-200 bg-amber-50 p-1.5 text-amber-600">
+                  <Icon.Bell className="h-4 w-4" />
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white leading-none">
+                    {recordatoriosCount}
+                  </span>
+                </div>
+              )}
+              <span className="hidden text-xs font-semibold text-slate-500 sm:inline">Hola, {session.nombre}</span>
+              {session.isAdmin && (
+                <button onClick={onAdmin}
+                  className={'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ' +
+                    (vista === 'admin' ? 'bg-brand-100 text-brand-700' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50')}>
+                  Admin
+                </button>
+              )}
+              <button onClick={onLogout}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-50">
+                Salir
+              </button>
+              <div className="hidden items-center gap-4 rounded-xl bg-slate-50 px-4 py-1.5 ring-1 ring-slate-200 md:flex">
+                <div className="text-center">
+                  <div className="text-base font-bold leading-none text-emerald-600">{stats.convertidos}</div>
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Convertidos</div>
+                </div>
+                <div className="h-7 w-px bg-slate-200"></div>
+                <div className="text-center">
+                  <div className="text-base font-bold leading-none text-brand-700">{RD(stats.ingreso)}</div>
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Extra/mes</div>
+                </div>
+              </div>
+              {onImport && (
+                <button onClick={onImport}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+                  <Icon.Upload className="h-3.5 w-3.5" /> Importar CSV
+                </button>
+              )}
+              <button onClick={onExport}
+                className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700">
+                <Icon.Download className="h-4 w-4" /><span className="hidden sm:inline">Exportar CSV</span>
+              </button>
+              <button onClick={onReset} title="Reiniciar campaña" aria-label="Reiniciar campaña"
+                className="rounded-xl border border-slate-200 px-2.5 py-2 text-slate-400 transition hover:border-rose-200 hover:text-rose-600">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+              </button>
+            </div>
+          </div>
+        </header>
+      );
+    }
+
+    /* ============================================================
+       DASHBOARD
+    ============================================================ */
+    function StatCard({ icon: I, label, value, sub, tone }) {
+      const tones = {
+        brand: 'from-brand-500 to-sky-400', emerald: 'from-emerald-500 to-teal-400',
+        amber: 'from-amber-500 to-orange-400', slate: 'from-slate-600 to-slate-400',
+      };
+      return (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-slate-500">{label}</span>
+            <span className={'grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br text-white ' + tones[tone]}>
+              <I className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">{value}</div>
+          {sub && <div className="mt-1 text-xs font-medium text-slate-400">{sub}</div>}
+        </div>
+      );
+    }
+
+    function Dashboard({ clients, log, stats, campania }) {
+      const conteo = useMemo(() => {
+        const o = {}; ORDEN_ESTADOS.forEach(e => o[e] = 0);
+        clients.forEach(c => o[c.estado] = (o[c.estado]||0) + 1);
+        return o;
+      }, [clients]);
+
+      const trabajados = clients.length - conteo.pendiente;
+      const progreso = clients.length ? Math.round(trabajados / clients.length * 100) : 0;
+
+      return (
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+          <h2 className="mb-1 text-lg font-bold text-slate-900">Resumen de la campaña</h2>
+          <p className="mb-5 text-sm text-slate-500">
+            {campania
+              ? `${campania.nombre} · primeros ${campania.mesesPromo} meses a ${RD(campania.precioPromo)}, luego ${RD(campania.precioNuevo)}.`
+              : 'Sin campaña activa — selecciona una desde el encabezado.'}
+          </p>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard icon={Icon.Users} label="Clientes en lista" value={clients.length}
+              sub={campania ? `Plan ${campania.planActual} · ${RD(campania.precioActual)}` : 'Todos los planes'}
+              tone="brand" />
+            <StatCard icon={Icon.Phone} label="Llamadas hoy" value={stats.llamadasHoy} sub={fechaCorta(NOW())} tone="slate" />
+            <StatCard icon={Icon.Check} label="Convertidos" value={stats.convertidos} sub={stats.tasa + '% de conversión'} tone="emerald" />
+            <StatCard icon={Icon.Clock} label="Callbacks pendientes" value={conteo.callback} sub="Por volver a llamar" tone="amber" />
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {/* Ingreso proyectado */}
+            <div className="rounded-2xl bg-gradient-to-br from-brand-700 to-brand-500 p-6 text-white shadow-sm lg:col-span-1">
+              <div className="flex items-center gap-2 text-sm font-medium text-brand-100">
+                <Icon.Money className="h-4 w-4" /> Ingreso adicional proyectado
+              </div>
+              <div className="mt-3 text-4xl font-extrabold tracking-tight">{RD(stats.ingreso)}<span className="text-lg font-semibold text-brand-100">/mes</span></div>
+              <div className="mt-2 text-sm text-brand-100">
+                {campania
+                  ? `${stats.convertidos} convertidos × ${RD(campania.precioNuevo - campania.precioActual)} (mes ${campania.mesesPromo + 1} en adelante)`
+                  : `${stats.convertidos} convertidos`}
+              </div>
+              <div className="mt-4 rounded-xl bg-white/10 px-3 py-2 text-xs text-brand-50">
+                Proyección anualizada: <strong>{RD(stats.ingreso * 12)}</strong> en ingresos recurrentes.
+              </div>
+            </div>
+
+            {/* Progreso + desglose */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-900">Avance de la lista</h3>
+                <span className="text-sm font-semibold text-slate-500">{trabajados}/{clients.length} gestionados · {progreso}%</span>
+              </div>
+              <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-gradient-to-r from-brand-600 to-sky-400 transition-all" style={{ width: progreso + '%' }}></div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {ORDEN_ESTADOS.map(e => (
+                  <div key={e} className="rounded-xl bg-slate-50 p-3 text-center ring-1 ring-slate-100">
+                    <div className="text-2xl font-extrabold text-slate-900">{conteo[e]}</div>
+                    <div className="mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-slate-500">
+                      <span className={'h-1.5 w-1.5 rounded-full ' + ESTADOS[e].dot}></span>{ESTADOS[e].label}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Registro reciente */}
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="mb-3 text-sm font-bold text-slate-900">Actividad reciente</h3>
+            {log.length === 0 ? (
+              <p className="text-sm text-slate-400">Aún no hay llamadas registradas.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {log.slice(0, 8).map((l, i) => (
+                  <li key={i} className="flex items-center justify-between py-2.5 text-sm">
+                    <div className="flex items-center gap-3">
+                      <Badge estado={l.resultado} />
+                      <span className="font-medium text-slate-700">{l.nombre}</span>
+                    </div>
+                    <span className="text-xs text-slate-400">{fechaHora(l.at)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       MODAL: AGREGAR CLIENTE
+    ============================================================ */
+    function ModalAgregar({ open, onClose, onSave }) {
+      const [f, setF] = useState({ nombre:'', telefono:'', direccion:'', inicio:'' });
+      useEffect(() => { if (open) setF({ nombre:'', telefono:'', direccion:'', inicio:'' }); }, [open]);
+      if (!open) return null;
+      const valido = f.nombre.trim() && f.telefono.trim();
+      const campo = (k, label, type='text', ph='') => (
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-slate-600">{label}</span>
+          <input type={type} value={f[k]} placeholder={ph}
+            onChange={e => setF({ ...f, [k]: e.target.value })}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" />
+        </label>
+      );
+      return (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" onClick={onClose}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="mb-4 text-base font-bold text-slate-900">Agregar cliente</h3>
+            <div className="space-y-3">
+              {campo('nombre','Nombre completo','text','Ej: Ana María Reyes')}
+              {campo('telefono','Teléfono','text','809-000-0000')}
+              {campo('direccion','Dirección','text','Calle, sector')}
+              {campo('inicio','Fecha de inicio del contrato','date')}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100">Cancelar</button>
+              <button disabled={!valido} onClick={() => onSave({ ...f, inicio: f.inicio || new Date().toISOString().slice(0,10) })}
+                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:opacity-40">
+                Agregar
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       LISTA DE CLIENTES
+    ============================================================ */
+    const POR_PAGINA = 50;
+
+    function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session, campania, onClearRecordatorio }) {
+      const [filtro, setFiltro] = useState('todos');
+      const [orden, setOrden] = useState('antiguos'); // antiguos | nuevos
+      const [busqueda, setBusqueda] = useState('');
+      const [modal, setModal] = useState(false);
+      const [pagina, setPagina] = useState(1);
+
+      // Reset to page 1 when filters or search change
+      useEffect(() => { setPagina(1); }, [filtro, busqueda, orden]);
+
+      const clientesFiltradosCampania = useMemo(() => {
+        if (!campania) return clients;
+        return clients.filter(c => {
+          const planMatch = !campania.planActual ||
+            (c.plan || '').toLowerCase() === campania.planActual.toLowerCase();
+          const zonaMatch = !campania.filtroZona ||
+            (c.direccion || '').toLowerCase().includes(campania.filtroZona.toLowerCase());
+          return planMatch && zonaMatch;
+        });
+      }, [clients, campania]);
+
+      const recordatoriosVencidos = useMemo(() =>
+        clients.filter(c => c.recordatorio && esVencido(c.recordatorio.fecha))
+          .sort((a, b) => a.recordatorio.fecha.localeCompare(b.recordatorio.fecha)),
+      [clients]);
+
+      const conteo = useMemo(() => {
+        const o = { todos: clientesFiltradosCampania.length };
+        ORDEN_ESTADOS.forEach(e => o[e] = 0);
+        clientesFiltradosCampania.forEach(c => o[c.estado] = (o[c.estado]||0) + 1);
+        return o;
+      }, [clientesFiltradosCampania]);
+
+      const visibles = useMemo(() => {
+        let r = filtro === 'todos'
+          ? clientesFiltradosCampania
+          : clientesFiltradosCampania.filter(c => c.estado === filtro);
+        if (busqueda.trim()) {
+          const q = busqueda.toLowerCase();
+          r = r.filter(c => c.nombre.toLowerCase().includes(q) || c.telefono.includes(q));
+        }
+        return [...r].sort((a, b) =>
+          orden === 'antiguos'
+            ? new Date(a.inicio) - new Date(b.inicio)
+            : new Date(b.inicio) - new Date(a.inicio)
+        );
+      }, [clientesFiltradosCampania, filtro, busqueda, orden]);
+
+      const totalPaginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA));
+      const paginados = useMemo(() =>
+        visibles.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA),
+        [visibles, pagina]);
+
+      const chips = [['todos','Todos'], ...ORDEN_ESTADOS.map(e => [e, ESTADOS[e].label])];
+
+      return (
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+          <ModalAgregar open={modal} onClose={() => setModal(false)} onSave={(c) => { onAdd(c); setModal(false); }} />
+
+          {recordatoriosVencidos.length > 0 && (
+            <div className="mb-4 overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-sm">
+              <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-100/60 px-4 py-2.5">
+                <Icon.Bell className="h-4 w-4 text-amber-600" />
+                <span className="text-sm font-bold text-amber-900">Recordatorios pendientes</span>
+                <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">{recordatoriosVencidos.length}</span>
+              </div>
+              <div className="divide-y divide-amber-100">
+                {recordatoriosVencidos.map(c => (
+                  <div key={c.id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold text-slate-800">{c.nombre}</div>
+                      <div className="mt-0.5 text-xs text-amber-700">
+                        <span className="font-semibold">{c.recordatorio.fecha}</span>
+                        {c.recordatorio.nota && <span> · {c.recordatorio.nota}</span>}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button onClick={() => onOpen(c.id)}
+                        className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700">
+                        Llamar
+                      </button>
+                      {onClearRecordatorio && (
+                        <button onClick={() => onClearRecordatorio(c.id)} title="Limpiar recordatorio" aria-label="Limpiar recordatorio"
+                          className="rounded-lg border border-amber-200 px-2 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100">
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Controles */}
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-1.5">
+              {chips.map(([id, label]) => (
+                <button key={id} onClick={() => setFiltro(id)}
+                  className={'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition ' +
+                    (filtro === id ? 'bg-brand-600 text-white ring-brand-600' : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50')}>
+                  {label}<span className={'rounded-full px-1.5 ' + (filtro === id ? 'bg-white/20' : 'bg-slate-100')}>{conteo[id]}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Icon.Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar nombre o teléfono…"
+                  className="w-full rounded-xl border border-slate-200 py-2 pl-8 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 sm:w-56" />
+              </div>
+              <button onClick={() => setOrden(o => o === 'antiguos' ? 'nuevos' : 'antiguos')}
+                title="Ordenar por antigüedad"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                <Icon.Sort className="h-4 w-4" />{orden === 'antiguos' ? 'Más antiguos' : 'Más nuevos'}
+              </button>
+              <button onClick={() => setModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                <Icon.Plus className="h-4 w-4" /><span className="hidden sm:inline">Agregar</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Tabla */}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="no-scrollbar overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-3">Cliente</th>
+                    <th className="px-4 py-3">Teléfono</th>
+                    <th className="hidden px-4 py-3 lg:table-cell">Dirección</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Cliente desde</th>
+                    <th className="px-4 py-3">Estado</th>
+                    <th className="px-4 py-3">Agente</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {paginados.map(c => (
+                    <tr key={c.id} className="group cursor-pointer transition hover:bg-brand-50/40" onClick={() => onOpen(c.id)}>
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-slate-800">{c.nombre}</div>
+                        {c.notas && <div className="mt-0.5 max-w-xs truncate text-xs text-slate-400">{c.notas}</div>}
+                        {c.recordatorio && (
+                          <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600">
+                            🔔 {c.recordatorio.fecha}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-600">{c.telefono}</td>
+                      <td className="hidden max-w-xs px-4 py-3 text-slate-500 lg:table-cell"><div className="truncate">{c.direccion}</div></td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="font-medium text-slate-700">{fechaCorta(c.inicio)}</div>
+                        <div className="text-xs text-slate-400">{antiguedad(c.inicio)}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge estado={c.estado} />
+                        {c.estado === 'callback' && c.callbackAt && (
+                          <div className="mt-1 text-[11px] font-medium text-amber-600">↻ {fechaHora(c.callbackAt)}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                        {c.agentId === session.id ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">Tú</span>
+                        ) : c.agentId ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs font-medium text-slate-600">{c.agentNombre}</span>
+                            <button onClick={() => onTomar(c.id)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-500 hover:bg-slate-50">
+                              Tomar
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => onTomar(c.id)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50">
+                            Tomar
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1.5 opacity-0 transition group-hover:opacity-100">
+                          {c.estado !== 'pendiente' && (
+                            <button onClick={() => onRevertir(c.id)} title="Revertir a pendiente" aria-label="Revertir a pendiente"
+                              className="rounded-lg border border-amber-200 px-2 py-1 text-xs font-semibold text-amber-600 hover:bg-amber-50">
+                              ↺
+                            </button>
+                          )}
+                          {session.isAdmin && (
+                            <button onClick={() => onEliminar(c.id, c.nombre)} title="Eliminar cliente" aria-label="Eliminar cliente"
+                              className="rounded-lg border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-500 hover:bg-rose-50">
+                              ✕
+                            </button>
+                          )}
+                          <span className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"
+                            onClick={() => onOpen(c.id)}>
+                            <Icon.Phone className="h-3.5 w-3.5" /> Llamar
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {paginados.length === 0 && (
+                    <tr><td colSpan="7" className="px-4 py-12 text-center text-sm text-slate-400">No hay clientes que coincidan con el filtro.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="mt-3 flex items-center justify-between">
+            <p className="text-xs text-slate-400">
+              {visibles.length > POR_PAGINA
+                ? `Mostrando ${(pagina-1)*POR_PAGINA+1}–${Math.min(pagina*POR_PAGINA, visibles.length)} de ${visibles.length}`
+                : `Mostrando ${visibles.length}`} clientes
+              {campania ? ` · ${campania.nombre}` : ` (${clients.length} total)`}
+            </p>
+            {totalPaginas > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">{pagina} / {totalPaginas}</span>
+                <div className="flex gap-1">
+                  <button disabled={pagina === 1} onClick={() => setPagina(p => p-1)}
+                    aria-label="Página anterior"
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                    ← Ant.
+                  </button>
+                  <button disabled={pagina >= totalPaginas} onClick={() => setPagina(p => p+1)}
+                    aria-label="Página siguiente"
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                    Sig. →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       PANEL DE LLAMADA ACTIVA
+    ============================================================ */
+    function ObjecionItem({ obj, abierto, onToggle }) {
+      return (
+        <div className="overflow-hidden rounded-xl border border-slate-200">
+          <button onClick={onToggle}
+            className={'flex w-full items-center justify-between gap-2 px-3.5 py-3 text-left text-sm font-semibold transition ' +
+              (abierto ? 'bg-amber-50 text-amber-900' : 'bg-white text-slate-700 hover:bg-slate-50')}>
+            <span>{obj.q}</span>
+            <Icon.ChevronDown className={'h-4 w-4 flex-shrink-0 transition ' + (abierto ? 'rotate-180' : '')} />
+          </button>
+          {abierto && (
+            <div className="border-t border-amber-100 bg-amber-50/50 px-3.5 py-3 text-sm text-slate-700">
+              <span className="font-semibold text-amber-700">Respuesta: </span>{obj.a}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function CallPanel({ cliente, onResult, onNota, onBack, hayNext, campania, onSetRecordatorio }) {
+      const [paso, setPaso] = useState(0);
+      const [nota, setNota] = useState(cliente.notas || '');
+      const [objAbierta, setObjAbierta] = useState(null);
+      const [showCallback, setShowCallback] = useState(false);
+      const [callbackVal, setCallbackVal] = useState(() => {
+        const d = new Date(); d.setDate(d.getDate()+1); d.setHours(15,0,0,0);
+        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+        return d.toISOString().slice(0,16);
+      });
+      const [showReminderSuggest, setShowReminderSuggest] = useState(false);
+      const [reminderFecha, setReminderFecha] = useState('');
+      const [reminderNota, setReminderNota] = useState('');
+      const notaRef = useRef(null);
+
+      const guion = useMemo(() => makeGuion(campania), [campania]);
+
+      // Reset al cambiar de cliente
+      useEffect(() => {
+        setPaso(0); setNota(cliente.notas || ''); setObjAbierta(null); setShowCallback(false);
+        setShowReminderSuggest(false);
+      }, [cliente.id]);
+
+      const guardarNota = useCallback(() => {
+        if (nota !== cliente.notas) onNota(cliente.id, nota);
+      }, [nota, cliente, onNota]);
+
+      const registrar = (resultado, callbackAt) => {
+        if (nota !== cliente.notas) onNota(cliente.id, nota);
+        onResult(cliente.id, resultado, callbackAt);
+        if (resultado === 'convertido' && campania && campania.mesesPromo > 0 && onSetRecordatorio) {
+          setReminderFecha(fechaMasNMeses(campania.mesesPromo));
+          setReminderNota(`Verificar si mantiene plan ${campania.planNuevo}`);
+          setShowReminderSuggest(true);
+        }
+      };
+
+      // Atajos de teclado
+      useEffect(() => {
+        const h = (e) => {
+          if (document.activeElement && (document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT')) return;
+          const k = e.key.toLowerCase();
+          if (k === 'escape') { onBack(); }
+          else if (k === 'c') { registrar('convertido'); }
+          else if (k === 'n') { registrar('no_interesado'); }
+          else if (k === 'x') { registrar('llamado'); }
+          else if (k === 'b') { setShowCallback(s => !s); }
+          else if (k === 'arrowright') { setPaso(p => Math.min(guion.length-1, p+1)); }
+          else if (k === 'arrowleft') { setPaso(p => Math.max(0, p-1)); }
+        };
+        window.addEventListener('keydown', h);
+        return () => window.removeEventListener('keydown', h);
+      });
+
+      const g = guion[paso];
+
+      return (
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
+          {/* Barra superior */}
+          <div className="mb-4 flex items-center justify-between">
+            <button onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:shadow">
+              <Icon.Arrow className="h-4 w-4" /> Volver a la lista
+            </button>
+            <span className="hidden text-xs text-slate-400 sm:block">Atajos: <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">C</kbd> convertir · <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">N</kbd> no · <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">B</kbd> callback · <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">X</kbd> no contestó</span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+            {/* Columna izquierda: datos del cliente + notas */}
+            <div className="space-y-4 lg:col-span-4">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-lg font-extrabold leading-tight text-slate-900">{cliente.nombre}</h2>
+                    <div className="mt-0.5"><Badge estado={cliente.estado} /></div>
+                  </div>
+                  <div className="grid h-11 w-11 place-items-center rounded-xl bg-brand-50 text-brand-600">
+                    <Icon.Users className="h-5 w-5" />
+                  </div>
+                </div>
+
+                <a href={telLink(cliente.telefono)}
+                  className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-lg font-bold text-white transition hover:bg-slate-800">
+                  <Icon.Phone className="h-5 w-5" /> {cliente.telefono}
+                </a>
+
+                <dl className="mt-4 space-y-2.5 text-sm">
+                  <div className="flex gap-2.5">
+                    <Icon.Pin className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" />
+                    <dd className="text-slate-600">{cliente.direccion}</dd>
+                  </div>
+                  <div className="flex gap-2.5">
+                    <Icon.Calendar className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" />
+                    <dd className="text-slate-600">Cliente desde <strong className="text-slate-800">{fechaCorta(cliente.inicio)}</strong> · {antiguedad(cliente.inicio)}</dd>
+                  </div>
+                </dl>
+
+                {campania ? (
+                  <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs ring-1 ring-slate-100">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Plan actual</span>
+                      <span className="font-semibold text-slate-700">{campania.planActual} · {RD(campania.precioActual)}</span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between">
+                      <span className="text-slate-500">Oferta</span>
+                      <span className="font-semibold text-brand-700">{campania.planNuevo} · {RD(campania.precioPromo)} × {campania.mesesPromo}m</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-xl bg-amber-50 p-3 text-xs ring-1 ring-amber-100">
+                    <span className="font-semibold text-amber-700">Sin campaña activa</span>
+                    <span className="text-amber-600"> — selecciona una en el encabezado.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Notas */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <label className="mb-2 block text-sm font-bold text-slate-900">Notas de la llamada</label>
+                <textarea ref={notaRef} value={nota} onChange={e => setNota(e.target.value)} onBlur={guardarNota}
+                  rows="4" placeholder="Anota detalles, dudas, mejor horario para volver a llamar…"
+                  className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" />
+              </div>
+            </div>
+
+            {/* Columna derecha: guión + objeciones */}
+            <div className="space-y-4 lg:col-span-8">
+              {/* Guión */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-900">Guión de llamada</h3>
+                  <span className="text-xs font-semibold text-slate-400">Paso {paso+1} de {guion.length}</span>
+                </div>
+
+                {/* Stepper */}
+                <div className="mb-4 flex gap-2">
+                  {guion.map((s, i) => (
+                    <button key={s.paso} onClick={() => setPaso(i)}
+                      className={'flex flex-1 flex-col items-start rounded-xl border px-3 py-2 text-left transition ' +
+                        (i === paso ? 'border-brand-600 bg-brand-50' : i < paso ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-white hover:bg-slate-50')}>
+                      <span className={'flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ' +
+                        (i === paso ? 'bg-brand-600 text-white' : i < paso ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500')}>
+                        {i < paso ? '✓' : s.paso}
+                      </span>
+                      <span className={'mt-1.5 text-xs font-semibold ' + (i === paso ? 'text-brand-700' : 'text-slate-500')}>{s.titulo}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Texto del paso actual */}
+                <div className="rounded-xl bg-gradient-to-br from-slate-50 to-brand-50/40 p-5 ring-1 ring-slate-100">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-brand-600">Paso {g.paso} · {g.titulo}</div>
+                  <p className="mt-2 text-lg font-medium leading-relaxed text-slate-800">“{g.texto}”</p>
+                  {g.nota && <p className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">⚠ {g.nota}</p>}
+                </div>
+
+                <div className="mt-4 flex justify-between">
+                  <button onClick={() => setPaso(p => Math.max(0, p-1))} disabled={paso === 0}
+                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 disabled:opacity-30">← Anterior</button>
+                  <button onClick={() => setPaso(p => Math.min(guion.length-1, p+1))} disabled={paso === guion.length-1}
+                    className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-30">Siguiente →</button>
+                </div>
+              </div>
+
+              {/* Objeciones */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="mb-3 text-sm font-bold text-slate-900">Manejo de objeciones</h3>
+                <div className="space-y-2">
+                  {OBJECIONES.map((o, i) => (
+                    <ObjecionItem key={i} obj={o} abierto={objAbierta === i} onToggle={() => setObjAbierta(a => a === i ? null : i)} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Programar callback (inline) */}
+          {showCallback && (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+                  <Icon.Clock className="h-4 w-4" /> ¿Cuándo volver a llamar?
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="datetime-local" value={callbackVal} onChange={e => setCallbackVal(e.target.value)}
+                    className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-200" />
+                  <button onClick={() => registrar('callback', new Date(callbackVal).toISOString())}
+                    className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600">Confirmar callback</button>
+                  <button onClick={() => setShowCallback(false)} aria-label="Cancelar callback" className="rounded-lg px-2 py-2 text-amber-700 hover:bg-amber-100"><Icon.X className="h-4 w-4" /></button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showReminderSuggest && (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                <Icon.Bell className="h-4 w-4" /> ¿Agregar recordatorio de seguimiento?
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input type="date" value={reminderFecha} onChange={e => setReminderFecha(e.target.value)}
+                  className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200" />
+                <input type="text" value={reminderNota} onChange={e => setReminderNota(e.target.value)}
+                  className="flex-1 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200"
+                  placeholder="Nota del recordatorio" />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { onSetRecordatorio(cliente.id, reminderFecha, reminderNota); setShowReminderSuggest(false); }}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700">
+                    Guardar
+                  </button>
+                  <button onClick={() => setShowReminderSuggest(false)}
+                    className="rounded-lg px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-100">
+                    Saltar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Barra de resultados (sticky) */}
+          <div className="sticky bottom-0 z-20 mt-4 -mx-4 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+            <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 sm:mr-2">Registrar resultado:</span>
+              <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
+                <button onClick={() => registrar('convertido')}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-emerald-700">
+                  <Icon.Check className="h-5 w-5" /> Convertido
+                </button>
+                <button onClick={() => setShowCallback(s => !s)}
+                  className={'flex items-center justify-center gap-2 rounded-xl py-3.5 text-base font-bold shadow-sm transition ' +
+                    (showCallback ? 'bg-amber-600 text-white' : 'bg-amber-500 text-white hover:bg-amber-600')}>
+                  <Icon.Clock className="h-5 w-5" /> Callback
+                </button>
+                <button onClick={() => registrar('no_interesado')}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-rose-600 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-rose-700">
+                  <Icon.X className="h-5 w-5" /> No interesado
+                </button>
+                <button onClick={() => registrar('llamado')}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-slate-600 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-slate-700">
+                  <Icon.PhoneOff className="h-5 w-5" /> No contestó
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       ADMIN VIEW
+    ============================================================ */
+    function AdminView({ session, onCampaignsChange }) {
+  const [tab, setTab] = useState('agentes');
+
+  // ---- Agents ----
+  const [agents, setAgents] = useState([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [agentForm, setAgentForm] = useState({ nombre: '', password: '', isAdmin: false });
+  const [agentFormError, setAgentFormError] = useState('');
+  const [agentSaving, setAgentSaving] = useState(false);
+  const agentHeaders = { 'Content-Type': 'application/json', 'X-Auth-Token': session.token || '' };
+
+  const loadAgents = async () => {
+    setAgentsLoading(true);
+    try {
+      const res = await fetch('/api/agents', { headers: { 'X-Auth-Token': session.token || '' } });
+      const data = await res.json();
+      if (!res.ok) { setAgentFormError(data.error || 'Error al cargar agentes'); return; }
+      setAgents(data.agents || []);
+    } catch { setAgentFormError('Error de red'); } finally { setAgentsLoading(false); }
+  };
+  useEffect(() => { loadAgents(); }, []);
+
+  const handleAddAgent = async (e) => {
+    e.preventDefault();
+    setAgentFormError('');
+    if (!agentForm.nombre.trim() || !agentForm.password.trim()) { setAgentFormError('Nombre y contraseña requeridos'); return; }
+    setAgentSaving(true);
+    try {
+      const res = await fetch('/api/agents', {
+        method: 'POST', headers: agentHeaders,
+        body: JSON.stringify({ nombre: agentForm.nombre.trim(), password: agentForm.password.trim(), isAdmin: agentForm.isAdmin }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAgentFormError(data.error || 'Error al agregar'); return; }
+      setAgentForm({ nombre: '', password: '', isAdmin: false });
+      await loadAgents();
+    } catch { setAgentFormError('Error de red'); } finally { setAgentSaving(false); }
+  };
+
+  const handleDeleteAgent = async (agent) => {
+    if (!window.confirm(`¿Eliminar al agente "${agent.nombre}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE', headers: { 'X-Auth-Token': session.token || '' } });
+      if (!res.ok) { const d = await res.json(); setAgentFormError(d.error || 'Error al eliminar'); return; }
+      await loadAgents();
+    } catch { setAgentFormError('Error de red al eliminar'); }
+  };
+
+  // ---- Campaigns ----
+  const [campaigns, setCampaigns] = useState([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(true);
+  const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const emptyCForm = { nombre: '', planActual: '', planNuevo: '', precioActual: '', precioNuevo: '', precioPromo: '', mesesPromo: '', filtroZona: '' };
+  const [cForm, setCForm] = useState(emptyCForm);
+  const [cFormError, setCFormError] = useState('');
+  const [cSaving, setCampaignSaving] = useState(false);
+
+  const loadCampaigns = async () => {
+    setCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/campaigns', { headers: { 'X-Auth-Token': session.token || '' } });
+      const data = await res.json();
+      if (!res.ok) { setCFormError(data.error || 'Error al cargar campañas'); return; }
+      setCampaigns(data.campaigns || []);
+    } catch { setCFormError('Error de red'); } finally { setCampaignsLoading(false); }
+  };
+  useEffect(() => { loadCampaigns(); }, []);
+
+  const handlePlanActualChange = (nombre) => {
+    const p = planInfo(nombre);
+    setCForm(f => ({ ...f, planActual: nombre, precioActual: p ? String(p.precio) : f.precioActual, precioPromo: p ? String(p.precio) : f.precioPromo }));
+  };
+
+  const handlePlanNuevoChange = (nombre) => {
+    const p = planInfo(nombre);
+    setCForm(f => ({ ...f, planNuevo: nombre, precioNuevo: p ? String(p.precio) : f.precioNuevo }));
+  };
+
+  const openNew = () => { setEditingId(null); setCForm(emptyCForm); setCFormError(''); setShowForm(true); };
+
+  const openEdit = (c) => {
+    setEditingId(c.id);
+    setCForm({ nombre: c.nombre, planActual: c.planActual, planNuevo: c.planNuevo, precioActual: String(c.precioActual), precioNuevo: String(c.precioNuevo), precioPromo: String(c.precioPromo), mesesPromo: String(c.mesesPromo), filtroZona: c.filtroZona || '' });
+    setCFormError('');
+    setShowForm(true);
+  };
+
+  const handleSaveCampaign = async (e) => {
+    e.preventDefault();
+    setCFormError('');
+    if (!cForm.nombre.trim() || !cForm.planActual || !cForm.planNuevo) { setCFormError('Nombre, plan actual y plan nuevo son requeridos'); return; }
+    if (cForm.planActual === cForm.planNuevo) { setCFormError('El plan actual y el plan nuevo deben ser diferentes'); return; }
+    setCampaignSaving(true);
+    const body = { nombre: cForm.nombre.trim(), planActual: cForm.planActual, planNuevo: cForm.planNuevo, precioActual: Number(cForm.precioActual) || 0, precioNuevo: Number(cForm.precioNuevo) || 0, precioPromo: Number(cForm.precioPromo) || 0, mesesPromo: Number(cForm.mesesPromo) || 0, filtroZona: cForm.filtroZona.trim() || null };
+    try {
+      const url = editingId != null ? `/api/campaigns/${editingId}` : '/api/campaigns';
+      const method = editingId != null ? 'PUT' : 'POST';
+      const res = await fetch(url, { method, headers: agentHeaders, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) { setCFormError(data.error || 'Error al guardar'); return; }
+      setShowForm(false);
+      await loadCampaigns();
+      if (onCampaignsChange) onCampaignsChange();
+    } catch { setCFormError('Error de red'); } finally { setCampaignSaving(false); }
+  };
+
+  const handleDeleteCampaign = async (c) => {
+    if (!window.confirm(`¿Eliminar campaña '${c.nombre}'?`)) return;
+    try {
+      const res = await fetch(`/api/campaigns/${c.id}`, { method: 'DELETE', headers: { 'X-Auth-Token': session.token || '' } });
+      if (!res.ok) { const d = await res.json(); setCFormError(d.error || 'Error al eliminar'); return; }
+      await loadCampaigns();
+      if (onCampaignsChange) onCampaignsChange();
+    } catch { setCFormError('Error de red al eliminar'); }
+  };
+
+  return (
+    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
+      <h2 className="mb-1 text-lg font-bold text-slate-900">Administración</h2>
+      <p className="mb-4 text-sm text-slate-500">Gestiona agentes y campañas.</p>
+
+      <div className="mb-5 flex gap-1 rounded-xl bg-slate-100 p-1 w-fit">
+        {[['agentes','Agentes'],['promos','Campañas']].map(([id,label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={'rounded-lg px-5 py-1.5 text-sm font-semibold transition ' + (tab === id ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-800')}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'agentes' && (
+        <div>
+          <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            {agentsLoading ? <p className="px-4 py-8 text-center text-sm text-slate-400">Cargando…</p> : (
+              <table className="min-w-full text-sm">
+                <thead><tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-3">Nombre</th><th className="px-4 py-3">Rol</th><th className="px-4 py-3"></th>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {agents.map(a => (
+                    <tr key={a.id}>
+                      <td className="px-4 py-3 font-medium text-slate-800">{a.nombre}{a.id === session.id && <span className="ml-2 text-xs text-slate-400">(tú)</span>}</td>
+                      <td className="px-4 py-3">{a.isAdmin ? <span className="rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-semibold text-brand-800 ring-1 ring-brand-200">Admin</span> : <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">Agente</span>}</td>
+                      <td className="px-4 py-3 text-right"><button disabled={a.id === session.id} onClick={() => handleDeleteAgent(a)} className="rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-30">Eliminar</button></td>
+                    </tr>
+                  ))}
+                  {agents.length === 0 && <tr><td colSpan="3" className="px-4 py-8 text-center text-sm text-slate-400">No hay agentes.</td></tr>}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="mb-4 text-sm font-bold text-slate-900">Agregar agente</h3>
+            <form onSubmit={handleAddAgent} className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Nombre</span>
+                  <input type="text" value={agentForm.nombre} onChange={e => setAgentForm(f => ({ ...f, nombre: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" placeholder="Nombre del agente" /></label>
+                <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Contraseña <span className="font-normal text-slate-400">(mín. 6 caracteres)</span></span>
+                  <input type="password" value={agentForm.password} onChange={e => setAgentForm(f => ({ ...f, password: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" placeholder="••••••••" /></label>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={agentForm.isAdmin} onChange={e => setAgentForm(f => ({ ...f, isAdmin: e.target.checked }))} className="rounded" /> Rol Admin</label>
+              {agentFormError && <p className="text-xs font-semibold text-rose-600">{agentFormError}</p>}
+              <button type="submit" disabled={agentSaving || !agentForm.nombre.trim() || agentForm.password.length < 6} className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-40">{agentSaving ? 'Guardando…' : 'Agregar agente'}</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {tab === 'promos' && (
+        <div>
+          <div className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            {campaignsLoading ? <p className="px-4 py-8 text-center text-sm text-slate-400">Cargando…</p> : (
+              <table className="min-w-full text-sm">
+                <thead><tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-3">Nombre</th>
+                  <th className="px-4 py-3">Plan actual</th>
+                  <th className="px-4 py-3">Plan nuevo</th>
+                  <th className="px-4 py-3">Precio promo</th>
+                  <th className="px-4 py-3">Meses</th>
+                  <th className="px-4 py-3">Zona</th>
+                  <th className="px-4 py-3"></th>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {campaigns.map(c => (
+                    <tr key={c.id}>
+                      <td className="px-4 py-3 font-medium text-slate-800">{c.nombre}</td>
+                      <td className="px-4 py-3 text-slate-600">{c.planActual}</td>
+                      <td className="px-4 py-3 text-slate-600">{c.planNuevo}</td>
+                      <td className="px-4 py-3 text-slate-600">{RD(c.precioPromo)}</td>
+                      <td className="px-4 py-3 text-slate-600">{c.mesesPromo}</td>
+                      <td className="px-4 py-3 text-slate-500">{c.filtroZona || <span className="text-slate-300">Todas</span>}</td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button onClick={() => openEdit(c)} aria-label="Editar campaña" title="Editar" className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50"><Icon.Pencil className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => handleDeleteCampaign(c)} aria-label="Eliminar campaña" title="Eliminar" className="rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50">✕</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {campaigns.length === 0 && <tr><td colSpan="7" className="px-4 py-8 text-center text-sm text-slate-400">No hay campañas. Crea una nueva.</td></tr>}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <button onClick={openNew} className="mb-4 inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700">
+            <Icon.Plus className="h-4 w-4" /> Nueva campaña
+          </button>
+
+          {showForm && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="mb-4 text-sm font-bold text-slate-900">{editingId != null ? 'Editar campaña' : 'Nueva campaña'}</h3>
+              <form onSubmit={handleSaveCampaign} className="space-y-3">
+                <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Nombre de la campaña</span>
+                  <input type="text" value={cForm.nombre} onChange={e => setCForm(f => ({ ...f, nombre: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" placeholder="Ej: Upsell Conectao' a Doméstico" /></label>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Plan actual (cliente tiene)</span>
+                    <select value={cForm.planActual} onChange={e => handlePlanActualChange(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500">
+                      <option value="">Seleccionar…</option>
+                      {PLANES.map(p => <option key={p.nombre} value={p.nombre}>{p.nombre} — {RD(p.precio)}</option>)}
+                    </select></label>
+                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Plan nuevo (oferta)</span>
+                    <select value={cForm.planNuevo} onChange={e => handlePlanNuevoChange(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500">
+                      <option value="">Seleccionar…</option>
+                      {PLANES.filter(p => p.nombre !== cForm.planActual).map(p => <option key={p.nombre} value={p.nombre}>{p.nombre} — {RD(p.precio)}</option>)}
+                    </select></label>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Precio promo (RD$)</span>
+                    <input type="number" value={cForm.precioPromo} onChange={e => setCForm(f => ({ ...f, precioPromo: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500" placeholder="999" /></label>
+                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Meses promo</span>
+                    <input type="number" min="1" value={cForm.mesesPromo} onChange={e => setCForm(f => ({ ...f, mesesPromo: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500" placeholder="3" /></label>
+                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Filtro zona (opcional)</span>
+                    <input type="text" value={cForm.filtroZona} onChange={e => setCForm(f => ({ ...f, filtroZona: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500" placeholder="Vacío = todas" /></label>
+                </div>
+
+                {cFormError && <p className="text-xs font-semibold text-rose-600">{cFormError}</p>}
+                <div className="flex items-center gap-2">
+                  <button type="submit" disabled={cSaving} className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-brand-700 disabled:opacity-40">{cSaving ? 'Guardando…' : (editingId != null ? 'Guardar cambios' : 'Crear campaña')}</button>
+                  <button type="button" onClick={() => setShowForm(false)} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+    /* ============================================================
+       APP PRINCIPAL
+    ============================================================ */
+    function App() {
+      const [state, dispatch] = useReducer(reducer, undefined, init);
+      const [vista, setVista] = useState('lista');     // lista | dashboard | llamada
+      const [activeId, setActiveId] = useState(null);
+      const [toast, setToast] = useState(null);
+      const toastTimer = useRef(null);
+      const showToastRef = useRef(null);
+      const logoutRef = useRef(null);
+
+      const [session, setSession] = useState(() => loadSession());
+      const sessionRef = useRef(session);
+      sessionRef.current = session;
+      const [campaigns, setCampaigns] = useState([]);
+      const [campaniaId, setCampaniaId] = useState(() => loadSession()?.campaniaId ?? null);
+
+      const campania = campaigns.find(c => c.id === campaniaId) || null;
+
+      // Renew session activity on any user interaction
+      useEffect(() => {
+        const handler = () => touchSession();
+        document.addEventListener('click', handler);
+        document.addEventListener('keydown', handler);
+        return () => {
+          document.removeEventListener('click', handler);
+          document.removeEventListener('keydown', handler);
+        };
+      }, []);
+
+      const handleLogin = (s) => setSession(s);
+
+      const handleLogout = async () => {
+        const token = sessionRef.current?.token;
+        if (token) {
+          try { await fetch('/api/logout', { method: 'POST', headers: { 'X-Auth-Token': token } }); } catch {}
+        }
+        localStorage.removeItem(SESSION_KEY);
+        setSession(null);
+      };
+
+      const etagRef = useRef(null);
+      const isLoadingRef = useRef(false);
+      const hasLoadedRef = useRef(false);
+
+      const fetchState = useCallback(async () => {
+        const token = sessionRef.current?.token;
+        try {
+          const headers = { 'X-Auth-Token': token || '', ...(etagRef.current ? { 'If-None-Match': etagRef.current } : {}) };
+          const res = await fetch('/api/state', { headers });
+          if (res.status === 304) return;
+          if (res.status === 401) { logoutRef.current?.(); return; }
+          if (!res.ok) { showToastRef.current?.('Error al cargar datos del servidor', 'err'); return; }
+          const data = await res.json();
+          etagRef.current = res.headers.get('ETag');
+          isLoadingRef.current = true;
+          hasLoadedRef.current = true;
+          dispatch({ type: 'LOAD', payload: data });
+        } catch {
+          showToastRef.current?.('Sin conexión al servidor', 'err');
+        }
+      }, []);
+
+      const postState = useCallback(async (s) => {
+        const token = sessionRef.current?.token;
+        try {
+          const res = await fetch('/api/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token || '' },
+            body: JSON.stringify({ clients: s.clients, log: s.log }),
+          });
+          if (res.status === 401) { logoutRef.current?.(); return; }
+          if (res.ok) {
+            const { version } = await res.json();
+            etagRef.current = `"v${version}"`;
+          } else {
+            showToastRef.current?.('Error al guardar cambios', 'err');
+          }
+        } catch {
+          showToastRef.current?.('Sin conexión — cambios no guardados', 'err');
+        }
+      }, []);
+
+      const fetchCampaigns = useCallback(async () => {
+        const token = sessionRef.current?.token;
+        try {
+          const res = await fetch('/api/campaigns', { headers: { 'X-Auth-Token': token || '' } });
+          if (res.status === 401) { logoutRef.current?.(); return; }
+          if (res.ok) {
+            const data = await res.json();
+            setCampaigns(data.campaigns || []);
+          }
+        } catch {
+          showToastRef.current?.('No se pudieron cargar las campañas', 'err');
+        }
+      }, []);
+
+      // Initial load on mount
+      useEffect(() => { fetchState(); fetchCampaigns(); }, []);
+
+      // Auto-save on mutation (skip when state was set by LOAD or before first server load)
+      useEffect(() => {
+        if (isLoadingRef.current) { isLoadingRef.current = false; return; }
+        if (!hasLoadedRef.current) return;
+        postState(state);
+      }, [state]);
+
+      const showToast = (msg, tone='ok') => {
+        setToast({ msg, tone });
+        clearTimeout(toastTimer.current);
+        toastTimer.current = setTimeout(() => setToast(null), 2600);
+      };
+      showToastRef.current = showToast;
+      logoutRef.current = handleLogout;
+
+      const stats = useMemo(() => {
+        const convertidos = state.clients.filter(c => c.estado === 'convertido').length;
+        const total = state.clients.length;
+        const llamadasHoy = state.log.filter(l => esHoy(l.at)).length;
+        const uplift = campania ? Math.max(0, campania.precioNuevo - campania.precioActual) : 0;
+        return {
+          convertidos,
+          tasa: total ? Math.round(convertidos/total*100) : 0,
+          ingreso: convertidos * uplift,
+          llamadasHoy,
+        };
+      }, [state, campania]);
+
+      const recordatoriosCount = useMemo(() =>
+        state.clients.filter(c => c.recordatorio && esVencido(c.recordatorio.fecha)).length,
+      [state.clients]);
+
+      const activeCliente = state.clients.find(c => c.id === activeId);
+
+      const abrirCliente = (id) => { setActiveId(id); setVista('llamada'); };
+
+      const ordenLlamada = useMemo(() =>
+        [...state.clients].sort((a,b) => new Date(a.inicio) - new Date(b.inicio)),
+        [state.clients]);
+
+      const siguientePendiente = (desdeId) => {
+        const idx = ordenLlamada.findIndex(c => c.id === desdeId);
+        for (let i = idx+1; i < ordenLlamada.length; i++) {
+          if (ordenLlamada[i].estado === 'pendiente' || ordenLlamada[i].estado === 'llamado') return ordenLlamada[i].id;
+        }
+        return null;
+      };
+
+      const onResult = (id, resultado, callbackAt) => {
+        dispatch({ type: 'RESULTADO', id, resultado, callbackAt });
+        const msgs = { convertido: '✅ Cliente convertido', no_interesado: 'Registrado: no interesado', callback: 'Callback agendado', llamado: 'Marcado: no contestó' };
+        showToast(msgs[resultado] || 'Resultado guardado', resultado === 'convertido' ? 'ok' : 'neutral');
+      };
+
+      const onEliminar = (id, nombre) => {
+        if (!window.confirm(`¿Eliminar a "${nombre}" de la lista? Esta acción no se puede deshacer.`)) return;
+        dispatch({ type: 'ELIMINAR_CLIENTE', id });
+        showToast('Cliente eliminado');
+      };
+
+      const onRevertir = (id) => {
+        dispatch({ type: 'REVERTIR_ESTADO', id });
+        showToast('Estado revertido a pendiente');
+      };
+
+      const onSetRecordatorio = (id, fecha, nota) => {
+        dispatch({ type: 'SET_RECORDATORIO', id, fecha, nota });
+        showToast('Recordatorio guardado 🔔');
+      };
+
+      const onClearRecordatorio = (id) => {
+        dispatch({ type: 'CLEAR_RECORDATORIO', id });
+        showToast('Recordatorio eliminado');
+      };
+
+      const onSelectCampania = (id) => {
+        setCampaniaId(id);
+        setCampaniaSession(id);
+      };
+
+      const onNota = (id, notas) => dispatch({ type: 'NOTA', id, notas });
+
+      const onTomar = (clientId) => {
+        const cliente = state.clients.find(c => c.id === clientId);
+        if (!cliente) return;
+        if (cliente.agentId && cliente.agentId !== session.id) {
+          const confirmar = window.confirm(
+            `Este cliente ya lo tiene ${cliente.agentNombre}. ¿Deseas tomarlo igualmente?`
+          );
+          if (!confirmar) return;
+        }
+        dispatch({ type: 'TOMAR_CLIENTE', clientId, agentId: session.id, agentNombre: session.nombre });
+        showToast('Cliente asignado a ti');
+      };
+
+      const onAdd = (cliente) => { dispatch({ type: 'AGREGAR', cliente }); showToast('Cliente agregado a la lista'); };
+
+      const onAdmin = () => { setVista('admin'); setActiveId(null); };
+
+      const onReset = () => {
+        if (window.confirm('¿Reiniciar la campaña? Esto pondrá a todos los clientes como "pendiente" y borrará notas, resultados y el registro de llamadas. Esta acción no se puede deshacer.')) {
+          dispatch({ type: 'LIMPIAR' });
+          setVista('lista'); setActiveId(null);
+          showToast('Campaña reiniciada', 'warn');
+        }
+      };
+
+      const exportarCSV = () => {
+        const headers = ['Nombre','Teléfono','Dirección','Fecha inicio','Antigüedad','Estado','Fecha callback','Último contacto','Notas'];
+        const filas = state.clients.map(c => [
+          c.nombre, c.telefono, c.direccion, fechaCorta(c.inicio), antiguedad(c.inicio),
+          ESTADOS[c.estado].label,
+          c.callbackAt ? fechaHora(c.callbackAt) : '',
+          c.lastContact ? fechaHora(c.lastContact) : '',
+          (c.notas || '').replace(/\s+/g,' ').trim(),
+        ]);
+        const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
+        const csv = '﻿' + [headers, ...filas].map(r => r.map(esc).join(',')).join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'valnet_upsell_' + new Date().toISOString().slice(0,10) + '.csv';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('CSV exportado (' + state.clients.length + ' clientes)');
+      };
+
+      const importarCSV = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.csv';
+        input.onchange = async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const text = await file.text();
+
+          // Parse a single CSV line respecting quoted fields (handles commas inside quotes)
+          const parseCSVLine = (line) => {
+            const fields = [];
+            let cur = '', inQuote = false;
+            for (let i = 0; i < line.length; i++) {
+              const ch = line[i];
+              if (ch === '"') {
+                if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+                else inQuote = !inQuote;
+              } else if (ch === ',' && !inQuote) {
+                fields.push(cur.trim()); cur = '';
+              } else {
+                cur += ch;
+              }
+            }
+            fields.push(cur.trim());
+            return fields;
+          };
+
+          const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim());
+          if (lines.length < 2) { showToast('CSV vacío o inválido', 'warn'); return; }
+
+          const rawHeaders = parseCSVLine(lines[0]).map(h => h.toLowerCase());
+
+          // Resolve a field trying multiple possible header names
+          const col = (row, ...names) => {
+            for (const n of names) {
+              const i = rawHeaders.indexOf(n.toLowerCase());
+              if (i >= 0 && row[i]) return row[i].trim();
+            }
+            return '';
+          };
+
+          let maxId = state.clients.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0);
+
+          const parsed = lines.slice(1).map(line => {
+            const row = parseCSVLine(line);
+            maxId += 1;
+            const cedula = col(row, 'cedula', 'id', 'codigo');
+            const telefono = col(row, 'movil', 'telefono', 'celular', 'telefono1');
+            const tier = col(row, 'tier', 'plan_tier') || '999';
+            const planFromCSV = col(row, 'plan', 'servicio', 'paquete', 'descripcion');
+            const planDerived = planFromCSV || (() => {
+              const p = PLANES.find(pl => pl.precio === Number(tier));
+              return p ? p.nombre : "Conectao'";
+            })();
+            return {
+              id: cedula || maxId,
+              nombre: col(row, 'nombre', 'name', 'cliente'),
+              telefono,
+              direccion: col(row, 'zona', 'direccion', 'address', 'sector'),
+              inicio: col(row, 'inicio', 'fecha') || new Date().toISOString().slice(0, 10),
+              tier,
+              plan: planDerived,
+              estado: 'pendiente',
+              notas: '',
+              callbackAt: null,
+              lastContact: null,
+              agentId: null,
+              agentNombre: null,
+              recordatorio: null,
+            };
+          }).filter(c => c.nombre);
+
+          if (!parsed.length) { showToast('No se encontraron clientes válidos', 'warn'); return; }
+          try {
+            const res = await fetch('/api/import', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Auth-Token': session?.token || '' },
+              body: JSON.stringify(parsed),
+            });
+            const { added, skipped } = await res.json();
+            await fetchState();
+            showToast(`Importados: ${added} clientes${skipped ? ` (${skipped} duplicados omitidos)` : ''}`);
+          } catch (err) {
+            showToast('Error al importar CSV', 'warn');
+          }
+        };
+        input.click();
+      };
+
+      if (!session) return <LoginPage onLogin={handleLogin} />;
+
+      return (
+        <div className="min-h-screen pb-10">
+          <Header stats={stats} vista={vista === 'llamada' ? 'lista' : vista}
+            setVista={(v) => { setVista(v); setActiveId(null); fetchState(); touchSession(); }}
+            onExport={exportarCSV} onReset={onReset} onImport={importarCSV}
+            session={session} onLogout={handleLogout} onAdmin={onAdmin}
+            campaigns={campaigns} campania={campania} onSelectCampania={onSelectCampania} recordatoriosCount={recordatoriosCount} />
+
+          {vista === 'dashboard' && <Dashboard clients={state.clients} log={state.log} stats={stats} campania={campania} />}
+          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} campania={campania} onClearRecordatorio={onClearRecordatorio} />}
+          {vista === 'admin' && session.isAdmin && <AdminView session={session} onCampaignsChange={fetchCampaigns} />}
+          {vista === 'llamada' && activeCliente && (
+            <CallPanel cliente={activeCliente} onResult={onResult} onNota={onNota}
+              onBack={() => { setVista('lista'); setActiveId(null); }}
+              hayNext={!!siguientePendiente(activeCliente.id)}
+              campania={campania} onSetRecordatorio={onSetRecordatorio} />
+          )}
+
+          <Toast toast={toast} />
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
