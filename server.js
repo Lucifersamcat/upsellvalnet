@@ -15,8 +15,14 @@ const ACTIVE_TIER = '999';
 const SALT_ROUNDS = 10;
 const MIN_PASSWORD_LEN = 6;
 const SESSION_TTL = 5_400_000; // 90 min
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 min
 
 app.use(express.json({ limit: '10mb' }));
+
+function log(msg) {
+  console.log(`[${new Date().toISOString()}] ${msg}`);
+}
 
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
@@ -51,8 +57,10 @@ const writeCampaigns = (d) => writeJsonFile(CAMPAIGNS_FILE, d);
 
 /* ----------------------------------------------------------------
    In-memory session store  { token → { agentId, nombre, isAdmin, expiresAt } }
+   Login rate limiter      { ip → { attempts, resetAt } }
 ---------------------------------------------------------------- */
 const sessions = new Map();
+const loginAttempts = new Map();
 
 function purgeExpiredSessions() {
   const now = Date.now();
@@ -94,15 +102,33 @@ function requireAdmin(req, res) {
    POST /api/login — verify credentials, return session token
 ---------------------------------------------------------------- */
 app.post('/api/login', (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+
+  // Rate limit: max LOGIN_MAX_ATTEMPTS failed attempts per LOGIN_LOCKOUT_MS window
+  const record = loginAttempts.get(ip);
+  if (record) {
+    if (now < record.resetAt && record.attempts >= LOGIN_MAX_ATTEMPTS) {
+      const waitMin = Math.ceil((record.resetAt - now) / 60000);
+      return res.status(429).json({ error: `Demasiados intentos. Intenta en ${waitMin} minutos.` });
+    }
+    if (now >= record.resetAt) loginAttempts.delete(ip);
+  }
+
   const { nombre, password } = req.body;
   if (!nombre || !password) {
     return res.status(400).json({ error: 'Nombre y contraseña requeridos' });
   }
   const data = readAgents();
   const agent = data.agents.find(a => a.nombre.toLowerCase() === nombre.toLowerCase());
-  if (!agent) {
-    return res.status(401).json({ error: 'Credenciales incorrectas' });
-  }
+
+  const recordFail = () => {
+    const r = loginAttempts.get(ip) || { attempts: 0, resetAt: now + LOGIN_LOCKOUT_MS };
+    r.attempts += 1;
+    loginAttempts.set(ip, r);
+  };
+
+  if (!agent) { recordFail(); return res.status(401).json({ error: 'Credenciales incorrectas' }); }
 
   const isHashed = /^\$2[ab]\$/.test(agent.password);
   let match;
@@ -117,10 +143,9 @@ app.post('/api/login', (req, res) => {
     }
   }
 
-  if (!match) {
-    return res.status(401).json({ error: 'Credenciales incorrectas' });
-  }
+  if (!match) { recordFail(); return res.status(401).json({ error: 'Credenciales incorrectas' }); }
 
+  loginAttempts.delete(ip); // clear on success
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(token, {
     agentId: agent.id,
@@ -128,7 +153,7 @@ app.post('/api/login', (req, res) => {
     isAdmin: agent.isAdmin,
     expiresAt: Date.now() + SESSION_TTL,
   });
-
+  log(`LOGIN  ${agent.nombre} (id=${agent.id}) from ${ip}`);
   res.json({ id: agent.id, nombre: agent.nombre, isAdmin: agent.isAdmin, token });
 });
 
@@ -137,7 +162,11 @@ app.post('/api/login', (req, res) => {
 ---------------------------------------------------------------- */
 app.post('/api/logout', (req, res) => {
   const token = req.headers['x-auth-token'];
-  if (token) sessions.delete(token);
+  if (token) {
+    const s = sessions.get(token);
+    if (s) log(`LOGOUT ${s.nombre} (id=${s.agentId})`);
+    sessions.delete(token);
+  }
   res.json({ ok: true });
 });
 
@@ -172,6 +201,7 @@ app.post('/api/agents', (req, res) => {
   const newAgent = { id: nextId, nombre, password: hashedPassword, isAdmin: !!isAdmin };
   data.agents.push(newAgent);
   writeAgents(data);
+  log(`AGENT_CREATE  by=${session.nombre} new=${nombre} isAdmin=${!!isAdmin}`);
   res.json({ agent: { id: newAgent.id, nombre: newAgent.nombre, isAdmin: newAgent.isAdmin } });
 });
 
@@ -188,11 +218,13 @@ app.delete('/api/agents/:id', (req, res) => {
   }
   const data = readAgents();
   const before = data.agents.length;
+  const target = data.agents.find(a => a.id === targetId);
   data.agents = data.agents.filter(a => a.id !== targetId);
   if (data.agents.length === before) {
     return res.status(404).json({ error: 'Agente no encontrado' });
   }
   writeAgents(data);
+  log(`AGENT_DELETE  by=${admin.nombre} deleted=${target?.nombre} (id=${targetId})`);
   res.json({ ok: true });
 });
 
@@ -319,7 +351,8 @@ app.post('/api/state', (req, res) => {
    POST /api/import — bulk import; skips duplicates by id
 ---------------------------------------------------------------- */
 app.post('/api/import', (req, res) => {
-  if (!requireAdmin(req, res)) return;
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
   const incoming = req.body;
   if (!Array.isArray(incoming)) {
     return res.status(400).json({ error: 'Body must be an array of clients' });
@@ -330,6 +363,7 @@ app.post('/api/import', (req, res) => {
   data.clients = [...data.clients, ...toAdd];
   data.version += 1;
   writeData(data);
+  log(`IMPORT  by=${admin.nombre} added=${toAdd.length} skipped=${incoming.length - toAdd.length}`);
   res.json({ added: toAdd.length, skipped: incoming.length - toAdd.length });
 });
 

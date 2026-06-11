@@ -646,11 +646,17 @@
     /* ============================================================
        LISTA DE CLIENTES
     ============================================================ */
+    const POR_PAGINA = 50;
+
     function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session, campania, onClearRecordatorio }) {
       const [filtro, setFiltro] = useState('todos');
       const [orden, setOrden] = useState('antiguos'); // antiguos | nuevos
       const [busqueda, setBusqueda] = useState('');
       const [modal, setModal] = useState(false);
+      const [pagina, setPagina] = useState(1);
+
+      // Reset to page 1 when filters or search change
+      useEffect(() => { setPagina(1); }, [filtro, busqueda, orden]);
 
       const clientesFiltradosCampania = useMemo(() => {
         if (!campania) return clients;
@@ -689,6 +695,11 @@
             : new Date(b.inicio) - new Date(a.inicio)
         );
       }, [clientesFiltradosCampania, filtro, busqueda, orden]);
+
+      const totalPaginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA));
+      const paginados = useMemo(() =>
+        visibles.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA),
+        [visibles, pagina]);
 
       const chips = [['todos','Todos'], ...ORDEN_ESTADOS.map(e => [e, ESTADOS[e].label])];
 
@@ -776,7 +787,7 @@
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {visibles.map(c => (
+                  {paginados.map(c => (
                     <tr key={c.id} className="group cursor-pointer transition hover:bg-brand-50/40" onClick={() => onOpen(c.id)}>
                       <td className="px-4 py-3">
                         <div className="font-semibold text-slate-800">{c.nombre}</div>
@@ -839,18 +850,38 @@
                       </td>
                     </tr>
                   ))}
-                  {visibles.length === 0 && (
+                  {paginados.length === 0 && (
                     <tr><td colSpan="7" className="px-4 py-12 text-center text-sm text-slate-400">No hay clientes que coincidan con el filtro.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
           </div>
-          <p className="mt-3 text-xs text-slate-400">
-            Mostrando {visibles.length} de {clientesFiltradosCampania.length} clientes
-            {campania ? ` · campaña: ${campania.nombre}` : ` (${clients.length} total)`}
-            · ordenados por antigüedad.
-          </p>
+          <div className="mt-3 flex items-center justify-between">
+            <p className="text-xs text-slate-400">
+              {visibles.length > POR_PAGINA
+                ? `Mostrando ${(pagina-1)*POR_PAGINA+1}–${Math.min(pagina*POR_PAGINA, visibles.length)} de ${visibles.length}`
+                : `Mostrando ${visibles.length}`} clientes
+              {campania ? ` · ${campania.nombre}` : ` (${clients.length} total)`}
+            </p>
+            {totalPaginas > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">{pagina} / {totalPaginas}</span>
+                <div className="flex gap-1">
+                  <button disabled={pagina === 1} onClick={() => setPagina(p => p-1)}
+                    aria-label="Página anterior"
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                    ← Ant.
+                  </button>
+                  <button disabled={pagina >= totalPaginas} onClick={() => setPagina(p => p+1)}
+                    aria-label="Página siguiente"
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                    Sig. →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       );
     }
