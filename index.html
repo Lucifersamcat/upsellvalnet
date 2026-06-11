@@ -1142,8 +1142,9 @@
     try {
       const res = await fetch('/api/agents', { headers: { 'X-Agent-Id': String(session.id) } });
       const data = await res.json();
+      if (!res.ok) { setAgentFormError(data.error || 'Error al cargar agentes'); return; }
       setAgents(data.agents || []);
-    } catch {} finally { setAgentsLoading(false); }
+    } catch { setAgentFormError('Error de red'); } finally { setAgentsLoading(false); }
   };
   useEffect(() => { loadAgents(); }, []);
 
@@ -1167,9 +1168,10 @@
   const handleDeleteAgent = async (agent) => {
     if (!window.confirm(`¿Eliminar al agente "${agent.nombre}"? Esta acción no se puede deshacer.`)) return;
     try {
-      await fetch(`/api/agents/${agent.id}`, { method: 'DELETE', headers: { 'X-Agent-Id': String(session.id) } });
+      const res = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE', headers: { 'X-Agent-Id': String(session.id) } });
+      if (!res.ok) { const d = await res.json(); setAgentFormError(d.error || 'Error al eliminar'); return; }
       await loadAgents();
-    } catch {}
+    } catch { setAgentFormError('Error de red al eliminar'); }
   };
 
   // ---- Campaigns ----
@@ -1187,8 +1189,9 @@
     try {
       const res = await fetch('/api/campaigns');
       const data = await res.json();
+      if (!res.ok) { setCFormError(data.error || 'Error al cargar campañas'); return; }
       setCampaigns(data.campaigns || []);
-    } catch {} finally { setCampaignsLoading(false); }
+    } catch { setCFormError('Error de red'); } finally { setCampaignsLoading(false); }
   };
   useEffect(() => { loadCampaigns(); }, []);
 
@@ -1233,10 +1236,11 @@
   const handleDeleteCampaign = async (c) => {
     if (!window.confirm(`¿Eliminar campaña '${c.nombre}'?`)) return;
     try {
-      await fetch(`/api/campaigns/${c.id}`, { method: 'DELETE', headers: { 'X-Agent-Id': String(session.id) } });
+      const res = await fetch(`/api/campaigns/${c.id}`, { method: 'DELETE', headers: { 'X-Agent-Id': String(session.id) } });
+      if (!res.ok) { const d = await res.json(); setCFormError(d.error || 'Error al eliminar'); return; }
       await loadCampaigns();
       if (onCampaignsChange) onCampaignsChange();
-    } catch {}
+    } catch { setCFormError('Error de red al eliminar'); }
   };
 
   return (
