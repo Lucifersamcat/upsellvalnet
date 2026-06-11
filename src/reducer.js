@@ -36,9 +36,12 @@ import { NOW } from './constants';
         case 'RESET':
           return { clients: [], log: [] };
         case 'LOAD':
-          return { clients: action.payload.clients, log: action.payload.log };
+          return {
+            clients: action.payload?.clients ?? [],
+            log: action.payload?.log ?? [],
+          };
         case 'LIMPIAR': {
-          const clients = state.clients.map(c => ({ ...c, estado:'pendiente', notas:'', callbackAt:null, lastContact:null }));
+          const clients = state.clients.map(c => ({ ...c, estado:'pendiente', notas:'', callbackAt:null, lastContact:null, recordatorio:null }));
           return { clients, log: [] };
         }
         case 'TOMAR_CLIENTE': {

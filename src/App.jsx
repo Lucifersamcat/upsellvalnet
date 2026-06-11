@@ -154,6 +154,7 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
 
       const siguientePendiente = (desdeId) => {
         const idx = ordenLlamada.findIndex(c => c.id === desdeId);
+        if (idx === -1) return null;
         for (let i = idx+1; i < ordenLlamada.length; i++) {
           if (ordenLlamada[i].estado === 'pendiente' || ordenLlamada[i].estado === 'llamado') return ordenLlamada[i].id;
         }
@@ -317,9 +318,11 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
           try {
             const res = await fetch('/api/import', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'X-Auth-Token': session?.token || '' },
+              headers: { 'Content-Type': 'application/json', 'X-Auth-Token': sessionRef.current?.token || '' },
               body: JSON.stringify(parsed),
             });
+            if (res.status === 401) { logoutRef.current?.(); return; }
+            if (!res.ok) { showToast('Error al importar CSV', 'err'); return; }
             const { added, skipped } = await res.json();
             await fetchState();
             showToast(`Importados: ${added} clientes${skipped ? ` (${skipped} duplicados omitidos)` : ''}`);
