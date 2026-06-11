@@ -19,6 +19,7 @@ const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 min
 
 app.use(express.json({ limit: '10mb' }));
+app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
 
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);

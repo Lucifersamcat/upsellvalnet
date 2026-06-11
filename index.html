@@ -1422,10 +1422,10 @@
       const toastTimer = useRef(null);
       const showToastRef = useRef(null);
       const logoutRef = useRef(null);
-      const sessionRef = useRef(session);
-      sessionRef.current = session;
 
       const [session, setSession] = useState(() => loadSession());
+      const sessionRef = useRef(session);
+      sessionRef.current = session;
       const [campaigns, setCampaigns] = useState([]);
       const [campaniaId, setCampaniaId] = useState(() => loadSession()?.campaniaId ?? null);
 
