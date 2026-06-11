@@ -1,13 +1,15 @@
+require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcrypt');
 
 const app = express();
-const PORT = 4321;
-const DATA_FILE = path.join(__dirname, 'data.json');
-const AGENTS_FILE = path.join(__dirname, 'agents.json');
-const CAMPAIGNS_FILE = path.join(__dirname, 'campaigns.json');
+const PORT = process.env.PORT || 4321;
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : __dirname;
+const DATA_FILE = path.join(DATA_DIR, 'data.json');
+const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
+const CAMPAIGNS_FILE = path.join(DATA_DIR, 'campaigns.json');
 const ACTIVE_TIER = '999';
 const SALT_ROUNDS = 10;
 const MIN_PASSWORD_LEN = 6;

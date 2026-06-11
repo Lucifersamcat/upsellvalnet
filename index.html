@@ -280,7 +280,7 @@
 
     function Toast({ toast }) {
       if (!toast) return null;
-      const tone = toast.tone === 'ok' ? 'bg-emerald-600' : toast.tone === 'warn' ? 'bg-amber-600' : 'bg-slate-800';
+      const tone = toast.tone === 'ok' ? 'bg-emerald-600' : toast.tone === 'warn' ? 'bg-amber-600' : toast.tone === 'err' ? 'bg-rose-600' : 'bg-slate-800';
       return (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
           <div className={'toast-in flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white shadow-lg ' + tone}>
@@ -1388,6 +1388,7 @@
       const [activeId, setActiveId] = useState(null);
       const [toast, setToast] = useState(null);
       const toastTimer = useRef(null);
+      const showToastRef = useRef(null);
 
       const [session, setSession] = useState(() => loadSession());
       const [campaigns, setCampaigns] = useState([]);
@@ -1421,13 +1422,13 @@
           const headers = etagRef.current ? { 'If-None-Match': etagRef.current } : {};
           const res = await fetch('/api/state', { headers });
           if (res.status === 304) return;
-          if (!res.ok) return;
+          if (!res.ok) { showToastRef.current?.('Error al cargar datos del servidor', 'err'); return; }
           const data = await res.json();
           etagRef.current = res.headers.get('ETag');
           isLoadingRef.current = true;
           dispatch({ type: 'LOAD', payload: data });
-        } catch (e) {
-          console.error('fetchState error:', e);
+        } catch {
+          showToastRef.current?.('Sin conexión al servidor', 'err');
         }
       }, []);
 
@@ -1441,9 +1442,11 @@
           if (res.ok) {
             const { version } = await res.json();
             etagRef.current = `"v${version}"`;
+          } else {
+            showToastRef.current?.('Error al guardar cambios', 'err');
           }
-        } catch (e) {
-          console.error('postState error:', e);
+        } catch {
+          showToastRef.current?.('Sin conexión — cambios no guardados', 'err');
         }
       }, []);
 
@@ -1472,6 +1475,7 @@
         clearTimeout(toastTimer.current);
         toastTimer.current = setTimeout(() => setToast(null), 2600);
       };
+      showToastRef.current = showToast;
 
       const stats = useMemo(() => {
         const convertidos = state.clients.filter(c => c.estado === 'convertido').length;
