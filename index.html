@@ -281,10 +281,11 @@
     function Toast({ toast }) {
       if (!toast) return null;
       const tone = toast.tone === 'ok' ? 'bg-emerald-600' : toast.tone === 'warn' ? 'bg-amber-600' : toast.tone === 'err' ? 'bg-rose-600' : 'bg-slate-800';
+      const ToastIcon = toast.tone === 'err' ? Icon.X : toast.tone === 'warn' ? Icon.Clock : Icon.Check;
       return (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
           <div className={'toast-in flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white shadow-lg ' + tone}>
-            <Icon.Check className="h-4 w-4" />{toast.msg}
+            <ToastIcon className="h-4 w-4" />{toast.msg}
           </div>
         </div>
       );
@@ -1284,12 +1285,12 @@
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Nombre</span>
                   <input type="text" value={agentForm.nombre} onChange={e => setAgentForm(f => ({ ...f, nombre: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" placeholder="Nombre del agente" /></label>
-                <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Contraseña</span>
-                  <input type="text" value={agentForm.password} onChange={e => setAgentForm(f => ({ ...f, password: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" placeholder="Contraseña" /></label>
+                <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Contraseña <span className="font-normal text-slate-400">(mín. 6 caracteres)</span></span>
+                  <input type="password" value={agentForm.password} onChange={e => setAgentForm(f => ({ ...f, password: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" placeholder="••••••••" /></label>
               </div>
               <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={agentForm.isAdmin} onChange={e => setAgentForm(f => ({ ...f, isAdmin: e.target.checked }))} className="rounded" /> Rol Admin</label>
               {agentFormError && <p className="text-xs font-semibold text-rose-600">{agentFormError}</p>}
-              <button type="submit" disabled={agentSaving} className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-40">{agentSaving ? 'Guardando…' : 'Agregar agente'}</button>
+              <button type="submit" disabled={agentSaving || !agentForm.nombre.trim() || agentForm.password.length < 6} className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-40">{agentSaving ? 'Guardando…' : 'Agregar agente'}</button>
             </form>
           </div>
         </div>
@@ -1457,7 +1458,9 @@
             const data = await res.json();
             setCampaigns(data.campaigns || []);
           }
-        } catch {}
+        } catch {
+          showToastRef.current?.('No se pudieron cargar las campañas', 'err');
+        }
       }, []);
 
       // Initial load on mount
