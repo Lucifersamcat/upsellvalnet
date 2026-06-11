@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 
 const app = express();
@@ -13,6 +14,7 @@ const CAMPAIGNS_FILE = path.join(DATA_DIR, 'campaigns.json');
 const ACTIVE_TIER = '999';
 const SALT_ROUNDS = 10;
 const MIN_PASSWORD_LEN = 6;
+const SESSION_TTL = 5_400_000; // 90 min
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -48,25 +50,48 @@ const readCampaigns = () => readJsonFile(CAMPAIGNS_FILE, { campaigns: [] });
 const writeCampaigns = (d) => writeJsonFile(CAMPAIGNS_FILE, d);
 
 /* ----------------------------------------------------------------
-   Auth helpers
+   In-memory session store  { token → { agentId, nombre, isAdmin, expiresAt } }
 ---------------------------------------------------------------- */
-function requireAdmin(req, res) {
-  const agentId = Number(req.headers['x-agent-id']);
-  if (Number.isNaN(agentId)) {
-    res.status(403).json({ error: 'Acceso denegado' });
-    return null;
+const sessions = new Map();
+
+function purgeExpiredSessions() {
+  const now = Date.now();
+  for (const [token, s] of sessions) {
+    if (now > s.expiresAt) sessions.delete(token);
   }
-  const data = readAgents();
-  const agent = data.agents.find(a => a.id === agentId);
-  if (!agent || !agent.isAdmin) {
-    res.status(403).json({ error: 'Acceso denegado' });
-    return null;
-  }
-  return agent;
 }
 
 /* ----------------------------------------------------------------
-   POST /api/login — verify credentials
+   Auth helpers
+---------------------------------------------------------------- */
+function requireAuth(req, res) {
+  const token = req.headers['x-auth-token'];
+  if (!token) {
+    res.status(401).json({ error: 'No autenticado' });
+    return null;
+  }
+  purgeExpiredSessions();
+  const session = sessions.get(token);
+  if (!session) {
+    res.status(401).json({ error: 'Sesión inválida o expirada' });
+    return null;
+  }
+  session.expiresAt = Date.now() + SESSION_TTL; // renew on activity
+  return session;
+}
+
+function requireAdmin(req, res) {
+  const session = requireAuth(req, res);
+  if (!session) return null;
+  if (!session.isAdmin) {
+    res.status(403).json({ error: 'Acceso denegado' });
+    return null;
+  }
+  return session;
+}
+
+/* ----------------------------------------------------------------
+   POST /api/login — verify credentials, return session token
 ---------------------------------------------------------------- */
 app.post('/api/login', (req, res) => {
   const { nombre, password } = req.body;
@@ -84,7 +109,7 @@ app.post('/api/login', (req, res) => {
   if (isHashed) {
     match = bcrypt.compareSync(password, agent.password);
   } else {
-    // Legacy plain-text password: compare and auto-upgrade on success
+    // Legacy plain-text: compare and auto-upgrade on success
     match = password === agent.password;
     if (match) {
       agent.password = bcrypt.hashSync(password, SALT_ROUNDS);
@@ -95,7 +120,25 @@ app.post('/api/login', (req, res) => {
   if (!match) {
     return res.status(401).json({ error: 'Credenciales incorrectas' });
   }
-  res.json({ id: agent.id, nombre: agent.nombre, isAdmin: agent.isAdmin });
+
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions.set(token, {
+    agentId: agent.id,
+    nombre: agent.nombre,
+    isAdmin: agent.isAdmin,
+    expiresAt: Date.now() + SESSION_TTL,
+  });
+
+  res.json({ id: agent.id, nombre: agent.nombre, isAdmin: agent.isAdmin, token });
+});
+
+/* ----------------------------------------------------------------
+   POST /api/logout — invalidate session token
+---------------------------------------------------------------- */
+app.post('/api/logout', (req, res) => {
+  const token = req.headers['x-auth-token'];
+  if (token) sessions.delete(token);
+  res.json({ ok: true });
 });
 
 /* ----------------------------------------------------------------
@@ -140,7 +183,7 @@ app.delete('/api/agents/:id', (req, res) => {
   if (!admin) return;
   const targetId = Number(req.params.id);
   if (Number.isNaN(targetId)) return res.status(400).json({ error: 'ID inválido' });
-  if (targetId === admin.id) {
+  if (targetId === admin.agentId) {
     return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
   }
   const data = readAgents();
@@ -154,9 +197,10 @@ app.delete('/api/agents/:id', (req, res) => {
 });
 
 /* ----------------------------------------------------------------
-   GET /api/campaigns — all agents can read
+   GET /api/campaigns — any authenticated agent
 ---------------------------------------------------------------- */
-app.get('/api/campaigns', (_req, res) => {
+app.get('/api/campaigns', (req, res) => {
+  if (!requireAuth(req, res)) return;
   const data = readCampaigns();
   res.json({ campaigns: data.campaigns });
 });
@@ -245,6 +289,7 @@ app.delete('/api/campaigns/:id', (req, res) => {
    GET /api/state — returns tier-999 clients + log, ETag support
 ---------------------------------------------------------------- */
 app.get('/api/state', (req, res) => {
+  if (!requireAuth(req, res)) return;
   const data = readData();
   const etag = `"v${data.version}"`;
   if (req.headers['if-none-match'] === etag) {
@@ -259,6 +304,7 @@ app.get('/api/state', (req, res) => {
    POST /api/state — save tier-999 changes, preserve other tiers
 ---------------------------------------------------------------- */
 app.post('/api/state', (req, res) => {
+  if (!requireAuth(req, res)) return;
   const { clients, log } = req.body;
   const data = readData();
   const otherClients = data.clients.filter(c => c.tier !== ACTIVE_TIER);
@@ -273,6 +319,7 @@ app.post('/api/state', (req, res) => {
    POST /api/import — bulk import; skips duplicates by id
 ---------------------------------------------------------------- */
 app.post('/api/import', (req, res) => {
+  if (!requireAdmin(req, res)) return;
   const incoming = req.body;
   if (!Array.isArray(incoming)) {
     return res.status(400).json({ error: 'Body must be an array of clients' });

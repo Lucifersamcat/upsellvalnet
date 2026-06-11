@@ -355,7 +355,7 @@
           });
           const data = await res.json();
           if (!res.ok) { setError(data.error || 'Error al iniciar sesión'); return; }
-          const session = { id: data.id, nombre: data.nombre, isAdmin: data.isAdmin };
+          const session = { id: data.id, nombre: data.nombre, isAdmin: data.isAdmin, token: data.token };
           saveSession(session);
           onLogin(session);
         } catch {
@@ -1136,12 +1136,12 @@
   const [agentForm, setAgentForm] = useState({ nombre: '', password: '', isAdmin: false });
   const [agentFormError, setAgentFormError] = useState('');
   const [agentSaving, setAgentSaving] = useState(false);
-  const agentHeaders = { 'Content-Type': 'application/json', 'X-Agent-Id': String(session.id) };
+  const agentHeaders = { 'Content-Type': 'application/json', 'X-Auth-Token': session.token || '' };
 
   const loadAgents = async () => {
     setAgentsLoading(true);
     try {
-      const res = await fetch('/api/agents', { headers: { 'X-Agent-Id': String(session.id) } });
+      const res = await fetch('/api/agents', { headers: { 'X-Auth-Token': session.token || '' } });
       const data = await res.json();
       if (!res.ok) { setAgentFormError(data.error || 'Error al cargar agentes'); return; }
       setAgents(data.agents || []);
@@ -1169,7 +1169,7 @@
   const handleDeleteAgent = async (agent) => {
     if (!window.confirm(`¿Eliminar al agente "${agent.nombre}"? Esta acción no se puede deshacer.`)) return;
     try {
-      const res = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE', headers: { 'X-Agent-Id': String(session.id) } });
+      const res = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE', headers: { 'X-Auth-Token': session.token || '' } });
       if (!res.ok) { const d = await res.json(); setAgentFormError(d.error || 'Error al eliminar'); return; }
       await loadAgents();
     } catch { setAgentFormError('Error de red al eliminar'); }
@@ -1188,7 +1188,7 @@
   const loadCampaigns = async () => {
     setCampaignsLoading(true);
     try {
-      const res = await fetch('/api/campaigns');
+      const res = await fetch('/api/campaigns', { headers: { 'X-Auth-Token': session.token || '' } });
       const data = await res.json();
       if (!res.ok) { setCFormError(data.error || 'Error al cargar campañas'); return; }
       setCampaigns(data.campaigns || []);
@@ -1237,7 +1237,7 @@
   const handleDeleteCampaign = async (c) => {
     if (!window.confirm(`¿Eliminar campaña '${c.nombre}'?`)) return;
     try {
-      const res = await fetch(`/api/campaigns/${c.id}`, { method: 'DELETE', headers: { 'X-Agent-Id': String(session.id) } });
+      const res = await fetch(`/api/campaigns/${c.id}`, { method: 'DELETE', headers: { 'X-Auth-Token': session.token || '' } });
       if (!res.ok) { const d = await res.json(); setCFormError(d.error || 'Error al eliminar'); return; }
       await loadCampaigns();
       if (onCampaignsChange) onCampaignsChange();
@@ -1390,6 +1390,9 @@
       const [toast, setToast] = useState(null);
       const toastTimer = useRef(null);
       const showToastRef = useRef(null);
+      const logoutRef = useRef(null);
+      const sessionRef = useRef(session);
+      sessionRef.current = session;
 
       const [session, setSession] = useState(() => loadSession());
       const [campaigns, setCampaigns] = useState([]);
@@ -1410,23 +1413,31 @@
 
       const handleLogin = (s) => setSession(s);
 
-      const handleLogout = () => {
+      const handleLogout = async () => {
+        const token = sessionRef.current?.token;
+        if (token) {
+          try { await fetch('/api/logout', { method: 'POST', headers: { 'X-Auth-Token': token } }); } catch {}
+        }
         localStorage.removeItem(SESSION_KEY);
         setSession(null);
       };
 
       const etagRef = useRef(null);
       const isLoadingRef = useRef(false);
+      const hasLoadedRef = useRef(false);
 
       const fetchState = useCallback(async () => {
+        const token = sessionRef.current?.token;
         try {
-          const headers = etagRef.current ? { 'If-None-Match': etagRef.current } : {};
+          const headers = { 'X-Auth-Token': token || '', ...(etagRef.current ? { 'If-None-Match': etagRef.current } : {}) };
           const res = await fetch('/api/state', { headers });
           if (res.status === 304) return;
+          if (res.status === 401) { logoutRef.current?.(); return; }
           if (!res.ok) { showToastRef.current?.('Error al cargar datos del servidor', 'err'); return; }
           const data = await res.json();
           etagRef.current = res.headers.get('ETag');
           isLoadingRef.current = true;
+          hasLoadedRef.current = true;
           dispatch({ type: 'LOAD', payload: data });
         } catch {
           showToastRef.current?.('Sin conexión al servidor', 'err');
@@ -1434,12 +1445,14 @@
       }, []);
 
       const postState = useCallback(async (s) => {
+        const token = sessionRef.current?.token;
         try {
           const res = await fetch('/api/state', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token || '' },
             body: JSON.stringify({ clients: s.clients, log: s.log }),
           });
+          if (res.status === 401) { logoutRef.current?.(); return; }
           if (res.ok) {
             const { version } = await res.json();
             etagRef.current = `"v${version}"`;
@@ -1452,8 +1465,10 @@
       }, []);
 
       const fetchCampaigns = useCallback(async () => {
+        const token = sessionRef.current?.token;
         try {
-          const res = await fetch('/api/campaigns');
+          const res = await fetch('/api/campaigns', { headers: { 'X-Auth-Token': token || '' } });
+          if (res.status === 401) { logoutRef.current?.(); return; }
           if (res.ok) {
             const data = await res.json();
             setCampaigns(data.campaigns || []);
@@ -1466,10 +1481,10 @@
       // Initial load on mount
       useEffect(() => { fetchState(); fetchCampaigns(); }, []);
 
-      // Auto-save on mutation (skip when state was set by LOAD)
+      // Auto-save on mutation (skip when state was set by LOAD or before first server load)
       useEffect(() => {
         if (isLoadingRef.current) { isLoadingRef.current = false; return; }
-        if (state.clients.length === 0 && state.log.length === 0) return;
+        if (!hasLoadedRef.current) return;
         postState(state);
       }, [state]);
 
@@ -1479,6 +1494,7 @@
         toastTimer.current = setTimeout(() => setToast(null), 2600);
       };
       showToastRef.current = showToast;
+      logoutRef.current = handleLogout;
 
       const stats = useMemo(() => {
         const convertidos = state.clients.filter(c => c.estado === 'convertido').length;
@@ -1670,7 +1686,7 @@
           try {
             const res = await fetch('/api/import', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-Auth-Token': session?.token || '' },
               body: JSON.stringify(parsed),
             });
             const { added, skipped } = await res.json();
