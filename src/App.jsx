@@ -364,7 +364,7 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
             campaigns={campaigns} campania={campania} onSelectCampania={onSelectCampania} recordatoriosCount={recordatoriosCount} />
 
           {vista === 'dashboard' && <Dashboard clients={state.clients} log={state.log} stats={stats} campania={campania} />}
-          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} campania={campania} onClearRecordatorio={onClearRecordatorio} />}
+          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} campania={campania} onClearRecordatorio={onClearRecordatorio} onSetRecordatorio={onSetRecordatorio} />}
           {vista === 'admin' && session.isAdmin && <AdminView session={session} onCampaignsChange={fetchCampaigns} />}
           {vista === 'llamada' && activeCliente && (
             <CallPanel cliente={activeCliente} onResult={onResult} onNota={onNota}
