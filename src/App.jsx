@@ -109,8 +109,12 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
         }
       }, []);
 
-      // Initial load on mount
-      useEffect(() => { fetchState(); fetchCampaigns(); }, []);
+      // Load after a valid session is available; re-fires if session token changes
+      useEffect(() => {
+        if (!session) return;
+        fetchState();
+        fetchCampaigns();
+      }, [session?.token]);
 
       // Auto-save on mutation (skip when state was set by LOAD or before first server load)
       useEffect(() => {
@@ -339,7 +343,7 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
         <div className="min-h-screen pb-10">
           <Header stats={stats} vista={vista === 'llamada' ? 'lista' : vista}
             setVista={(v) => { setVista(v); setActiveId(null); fetchState(); touchSession(); }}
-            onExport={exportarCSV} onReset={onReset} onImport={importarCSV}
+            onExport={exportarCSV} onReset={onReset} onImport={session.isAdmin ? importarCSV : undefined}
             session={session} onLogout={handleLogout} onAdmin={onAdmin}
             campaigns={campaigns} campania={campania} onSelectCampania={onSelectCampania} recordatoriosCount={recordatoriosCount} />
 
