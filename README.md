@@ -1,37 +1,79 @@
 # ValNet Wireless — Campaña Upsell 40/40
 
-Herramienta interna para gestionar la campaña de llamadas que sube a los clientes del plan 20/20 ($999) al plan 40/40, con promoción de 3 meses al mismo precio.
+Herramienta interna para gestionar la campaña de llamadas que sube clientes del plan 20/20 ($999) al plan 40/40, con promoción de 3 meses al mismo precio.
 
-## Arquitectura
+## Stack
 
-- **Frontend:** React 18 + Tailwind CSS 3, construido con Vite 5
-- **Backend:** Express 5, Node.js — sirve la SPA y expone `/api/*`
-- **Auth:** tokens de 32 bytes aleatorios (`X-Auth-Token`), sesiones en memoria con TTL de 90 min
-- **Contraseñas:** bcrypt con salt rounds = 10; migración automática de contraseñas en texto plano al primer login
+| Capa | Tecnología |
+|---|---|
+| Frontend | React 18, Tailwind CSS 3, Vite 5 |
+| Backend | Express 5, Node.js 20+ |
+| Auth | Tokens de 32 bytes, sesiones en memoria (TTL 90 min) |
+| Contraseñas | bcrypt (salt rounds = 10), migración automática de texto plano |
 
-## Desarrollo
+## Desarrollo local
 
 ```bash
 npm install
-npm run dev        # Vite dev server en :5173, proxy /api → :4321
-node server.js     # API en :4321 (en otra terminal)
+
+# Terminal 1 — API en :4321
+node server.js
+
+# Terminal 2 — Vite dev server en :5173 (proxy /api → :4321)
+npm run dev
 ```
 
 ## Producción
 
 ```bash
 npm install
-npm run build      # genera dist/
-npm start          # node server.js — sirve dist/ + API en el mismo puerto
+npm run build   # genera dist/
+npm start       # node server.js — sirve dist/ + API en el mismo puerto
 ```
 
-La variable de entorno `PORT` (por defecto 4321) controla el puerto del servidor.
-Copiar `.env.example` a `.env` y ajustar si es necesario.
+Copiar `.env.example` a `.env` y ajustar variables antes de iniciar:
 
-## Módulos
+```
+PORT=4321
+DATA_DIR=/ruta/a/datos   # opcional; por defecto usa el directorio del proyecto
+```
 
-- Lista de clientes con filtros, búsqueda y orden por antigüedad
-- Panel de llamada con guión paso a paso y manejo de objeciones
-- Dashboard de campaña con ingreso adicional proyectado
-- Vista de administración: importar clientes CSV, gestionar agentes y campañas
-- Exportar resultados a CSV
+## Funcionalidades
+
+- **Lista de clientes** — filtros por estado, búsqueda, orden por antigüedad, paginación (50/página)
+- **Panel de llamada** — guión paso a paso, manejo de objeciones, registro de resultado
+- **Recordatorios** — crear/editar/eliminar desde la lista o el panel de llamada; badge de vencidos en el header
+- **Dashboard** — conversiones, tasa, ingreso adicional proyectado, llamadas del día
+- **Campañas** — múltiples campañas con planes, precios y filtro de zona (admin)
+- **Gestión de agentes** — crear, eliminar, asignar rol admin (admin)
+- **Importar clientes** — CSV bulk via `/api/import` (admin)
+- **Exportar resultados** — CSV con todos los campos
+
+## Seguridad
+
+- Cabeceras HTTP: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`
+- Rate limiting en login: 5 intentos fallidos / 15 min por IP
+- Audit log en consola: LOGIN, LOGOUT, AGENT_CREATE, AGENT_DELETE, IMPORT
+- Datos sensibles (`data.json`, `agents.json`, `campaigns.json`) en `.gitignore`
+
+## Estructura
+
+```
+src/
+├── main.jsx                  # Entrada Vite
+├── App.jsx                   # Componente raíz, estado global
+├── constants.js              # Planes, estados, utilidades de formato
+├── reducer.js                # Estado de clientes y log
+├── session.js                # Persistencia de sesión en localStorage
+├── utils.js / icons.jsx / guion.js
+└── components/
+    ├── LoginPage, Header, Toast, Badge
+    ├── ClientList, Dashboard, CallPanel
+    ├── AdminView, ModalAgregar
+    └── ErrorBoundary         # Captura errores de render
+server.js                     # API Express + servicio de dist/
+```
+
+## CI
+
+GitHub Actions ejecuta `npm ci && npm run build` en cada push y PR a `main`.
