@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { font-family: 'Inter', system-ui, sans-serif; }
+body { background-color: #f1f5f9; }
+
+.no-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+.no-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+
+/* Placeholder while the bundle loads */
+#root:empty::after {
+  content: 'Cargando herramienta…';
+  display: grid;
+  place-items: center;
+  height: 100vh;
+  color: #64748b;
+  font-size: 14px;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.toast-in { animation: toastIn .18s ease-out; }

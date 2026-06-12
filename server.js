@@ -20,26 +20,30 @@ const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 min
 
 app.use(express.json({ limit: '10mb' }));
 
+// Serve the Vite production build from dist/ (run `npm run build` first).
+const DIST_DIR = path.join(__dirname, 'dist');
+app.use(express.static(DIST_DIR));
+
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
 app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(DIST_DIR, 'index.html'));
 });
 
 /* ----------------------------------------------------------------
    Generic JSON file helpers — DRY + crash-safe JSON.parse
 ---------------------------------------------------------------- */
 function readJsonFile(filePath, seed) {
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(seed, null, 2));
-    return seed;
-  }
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    console.error(`JSON corrupto en ${filePath}, usando semilla`);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      fs.writeFileSync(filePath, JSON.stringify(seed, null, 2));
+    } else {
+      console.error(`JSON corrupto en ${filePath}, usando semilla`);
+    }
     return seed;
   }
 }
@@ -68,6 +72,15 @@ function purgeExpiredSessions() {
     if (now > s.expiresAt) sessions.delete(token);
   }
 }
+
+// Sweep expired loginAttempts entries every 30 minutes so the Map
+// doesn't grow unboundedly from locked-out IPs that never retry.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, r] of loginAttempts) {
+    if (now >= r.resetAt) loginAttempts.delete(ip);
+  }
+}, 30 * 60 * 1000).unref();
 
 /* ----------------------------------------------------------------
    Auth helpers
@@ -101,7 +114,7 @@ function requireAdmin(req, res) {
 /* ----------------------------------------------------------------
    POST /api/login — verify credentials, return session token
 ---------------------------------------------------------------- */
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
 
@@ -133,12 +146,12 @@ app.post('/api/login', (req, res) => {
   const isHashed = /^\$2[ab]\$/.test(agent.password);
   let match;
   if (isHashed) {
-    match = bcrypt.compareSync(password, agent.password);
+    match = await bcrypt.compare(password, agent.password);
   } else {
     // Legacy plain-text: compare and auto-upgrade on success
     match = password === agent.password;
     if (match) {
-      agent.password = bcrypt.hashSync(password, SALT_ROUNDS);
+      agent.password = await bcrypt.hash(password, SALT_ROUNDS);
       writeAgents(data);
     }
   }
@@ -183,8 +196,9 @@ app.get('/api/agents', (req, res) => {
 /* ----------------------------------------------------------------
    POST /api/agents — add agent (admin only)
 ---------------------------------------------------------------- */
-app.post('/api/agents', (req, res) => {
-  if (!requireAdmin(req, res)) return;
+app.post('/api/agents', async (req, res) => {
+  const session = requireAdmin(req, res);
+  if (!session) return;
   const { nombre, password, isAdmin } = req.body;
   if (!nombre || !password) {
     return res.status(400).json({ error: 'Nombre y contraseña requeridos' });
@@ -197,7 +211,7 @@ app.post('/api/agents', (req, res) => {
     return res.status(400).json({ error: 'Ya existe un agente con ese nombre' });
   }
   const nextId = data.agents.reduce((m, a) => Math.max(m, a.id), 0) + 1;
-  const hashedPassword = bcrypt.hashSync(String(password), SALT_ROUNDS);
+  const hashedPassword = await bcrypt.hash(String(password), SALT_ROUNDS);
   const newAgent = { id: nextId, nombre, password: hashedPassword, isAdmin: !!isAdmin };
   data.agents.push(newAgent);
   writeAgents(data);
@@ -251,14 +265,14 @@ function parseCampaignBody(body, res) {
     return null;
   }
   const prices = {
-    precioActual: Number(precioActual) || 0,
-    precioNuevo:  Number(precioNuevo)  || 0,
-    precioPromo:  Number(precioPromo)  || 0,
-    mesesPromo:   Number(mesesPromo)   || 0,
+    precioActual: Number(precioActual),
+    precioNuevo:  Number(precioNuevo),
+    precioPromo:  Number(precioPromo),
+    mesesPromo:   Number(mesesPromo),
   };
   for (const [key, val] of Object.entries(prices)) {
-    if (val < 0) {
-      res.status(400).json({ error: `El campo ${key} no puede ser negativo` });
+    if (!Number.isFinite(val) || val < 0) {
+      res.status(400).json({ error: `El campo ${key} debe ser un número no negativo` });
       return null;
     }
   }
