@@ -6,19 +6,85 @@ import { Icon } from '../icons';
 import { antiguedad, esVencido, fechaCorta, fechaHora } from '../utils';
 
     /* ============================================================
+       MODAL RECORDATORIO
+    ============================================================ */
+    function ModalRecordatorio({ target, onSave, onClear, onClose }) {
+      const [fecha, setFecha] = useState(target.fecha || '');
+      const [nota, setNota] = useState(target.nota || '');
+      const today = new Date().toISOString().slice(0, 10);
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Icon.Bell className="h-4 w-4 text-amber-500" />
+                <h2 className="font-bold text-slate-800">Recordatorio</h2>
+              </div>
+              <button onClick={onClose} aria-label="Cerrar" className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+                <Icon.X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-4 truncate text-sm font-semibold text-slate-600">{target.nombre}</p>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">Fecha</label>
+                <input type="date" value={fecha} min={today} onChange={e => setFecha(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">
+                  Nota <span className="font-normal text-slate-400">(opcional)</span>
+                </label>
+                <input type="text" value={nota} onChange={e => setNota(e.target.value)}
+                  placeholder="Ej: Revertir velocidad a 20/20, arreglar facturación…"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" />
+              </div>
+              <div className="mt-1 flex items-center gap-2">
+                <button
+                  onClick={() => { if (fecha) { onSave(target.id, fecha, nota); onClose(); } }}
+                  disabled={!fecha}
+                  className="flex-1 rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40">
+                  Guardar
+                </button>
+                {target.fecha && (
+                  <button onClick={() => { onClear(target.id); onClose(); }}
+                    className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-500 hover:bg-rose-50">
+                    Eliminar
+                  </button>
+                )}
+                <button onClick={onClose}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
        LISTA DE CLIENTES
     ============================================================ */
     const POR_PAGINA = 50;
 
-    function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session, campania, onClearRecordatorio }) {
+    function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session, campania, onClearRecordatorio, onSetRecordatorio }) {
       const [filtro, setFiltro] = useState('todos');
       const [orden, setOrden] = useState('antiguos'); // antiguos | nuevos
       const [busqueda, setBusqueda] = useState('');
       const [modal, setModal] = useState(false);
       const [pagina, setPagina] = useState(1);
+      const [reminderTarget, setReminderTarget] = useState(null); // { id, nombre, fecha, nota }
 
       // Reset to page 1 when filters or search change
       useEffect(() => { setPagina(1); }, [filtro, busqueda, orden]);
+
+      const openReminder = (e, c) => {
+        e.stopPropagation();
+        setReminderTarget({ id: c.id, nombre: c.nombre, fecha: c.recordatorio?.fecha || '', nota: c.recordatorio?.nota || '' });
+      };
 
       const clientesFiltradosCampania = useMemo(() => {
         if (!campania) return clients;
@@ -69,6 +135,15 @@ import { antiguedad, esVencido, fechaCorta, fechaHora } from '../utils';
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
           <ModalAgregar open={modal} onClose={() => setModal(false)} onSave={(c) => { onAdd(c); setModal(false); }} />
 
+          {reminderTarget && onSetRecordatorio && (
+            <ModalRecordatorio
+              target={reminderTarget}
+              onSave={onSetRecordatorio}
+              onClear={onClearRecordatorio}
+              onClose={() => setReminderTarget(null)}
+            />
+          )}
+
           {recordatoriosVencidos.length > 0 && (
             <div className="mb-4 overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-sm">
               <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-100/60 px-4 py-2.5">
@@ -81,10 +156,12 @@ import { antiguedad, esVencido, fechaCorta, fechaHora } from '../utils';
                   <div key={c.id} className="flex items-center gap-3 px-4 py-3">
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-semibold text-slate-800">{c.nombre}</div>
-                      <div className="mt-0.5 text-xs text-amber-700">
+                      <button
+                        onClick={e => openReminder(e, c)}
+                        className="mt-0.5 text-left text-xs text-amber-700 hover:underline">
                         <span className="font-semibold">{c.recordatorio.fecha}</span>
                         {c.recordatorio.nota && <span> · {c.recordatorio.nota}</span>}
-                      </div>
+                      </button>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <button onClick={() => onOpen(c.id)}
@@ -157,6 +234,7 @@ import { antiguedad, esVencido, fechaCorta, fechaHora } from '../utils';
                         {c.recordatorio && (
                           <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600">
                             🔔 {c.recordatorio.fecha}
+                            {c.recordatorio.nota && <span className="font-normal text-amber-500"> · {c.recordatorio.nota}</span>}
                           </div>
                         )}
                       </td>
@@ -192,6 +270,17 @@ import { antiguedad, esVencido, fechaCorta, fechaHora } from '../utils';
                       </td>
                       <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5 opacity-0 transition group-hover:opacity-100">
+                          {onSetRecordatorio && (
+                            <button onClick={e => openReminder(e, c)}
+                              title={c.recordatorio ? 'Editar recordatorio' : 'Agregar recordatorio'}
+                              aria-label={c.recordatorio ? 'Editar recordatorio' : 'Agregar recordatorio'}
+                              className={'rounded-lg border px-2 py-1 text-xs font-semibold transition ' +
+                                (c.recordatorio
+                                  ? 'border-amber-300 bg-amber-50 text-amber-600 hover:bg-amber-100'
+                                  : 'border-slate-200 text-slate-400 hover:bg-slate-50')}>
+                              🔔
+                            </button>
+                          )}
                           {c.estado !== 'pendiente' && (
                             <button onClick={() => onRevertir(c.id)} title="Revertir a pendiente" aria-label="Revertir a pendiente"
                               className="rounded-lg border border-amber-200 px-2 py-1 text-xs font-semibold text-amber-600 hover:bg-amber-50">

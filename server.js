@@ -20,6 +20,23 @@ const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 min
 
 app.use(express.json({ limit: '10mb' }));
 
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-XSS-Protection', '0');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; " +
+    "font-src fonts.gstatic.com; " +
+    "style-src 'self' fonts.googleapis.com; " +
+    "script-src 'self'; " +
+    "connect-src 'self'; " +
+    "img-src 'self' data:"
+  );
+  next();
+});
+
 // Serve the Vite production build from dist/ (run `npm run build` first).
 const DIST_DIR = path.join(__dirname, 'dist');
 app.use(express.static(DIST_DIR));

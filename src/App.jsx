@@ -28,6 +28,9 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
       sessionRef.current = session;
       const [campaigns, setCampaigns] = useState([]);
       const [campaniaId, setCampaniaId] = useState(() => loadSession()?.campaniaId ?? null);
+      const [dataReady, setDataReady] = useState(false);
+      const setDataReadyRef = useRef(setDataReady);
+      setDataReadyRef.current = setDataReady;
 
       const campania = campaigns.find(c => c.id === campaniaId) || null;
 
@@ -62,16 +65,22 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
         try {
           const headers = { 'X-Auth-Token': token || '', ...(etagRef.current ? { 'If-None-Match': etagRef.current } : {}) };
           const res = await fetch('/api/state', { headers });
-          if (res.status === 304) return;
+          if (res.status === 304) { setDataReadyRef.current(true); return; }
           if (res.status === 401) { logoutRef.current?.(); return; }
-          if (!res.ok) { showToastRef.current?.('Error al cargar datos del servidor', 'err'); return; }
+          if (!res.ok) {
+            showToastRef.current?.('Error al cargar datos del servidor', 'err');
+            setDataReadyRef.current(true);
+            return;
+          }
           const data = await res.json();
           etagRef.current = res.headers.get('ETag');
           isLoadingRef.current = true;
           hasLoadedRef.current = true;
           dispatch({ type: 'LOAD', payload: data });
+          setDataReadyRef.current(true);
         } catch {
           showToastRef.current?.('Sin conexión al servidor', 'err');
+          setDataReadyRef.current(true);
         }
       }, []);
 
@@ -109,8 +118,12 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
         }
       }, []);
 
-      // Initial load on mount
-      useEffect(() => { fetchState(); fetchCampaigns(); }, []);
+      // Load after a valid session is available; re-fires if session token changes
+      useEffect(() => {
+        if (!session) { setDataReady(false); return; }
+        fetchState();
+        fetchCampaigns();
+      }, [session?.token]);
 
       // Auto-save on mutation (skip when state was set by LOAD or before first server load)
       useEffect(() => {
@@ -335,16 +348,23 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
 
       if (!session) return <LoginPage onLogin={handleLogin} />;
 
+      if (!dataReady) return (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-50">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-200 border-t-brand-600" />
+          <p className="text-sm font-medium text-slate-500">Cargando datos…</p>
+        </div>
+      );
+
       return (
         <div className="min-h-screen pb-10">
           <Header stats={stats} vista={vista === 'llamada' ? 'lista' : vista}
             setVista={(v) => { setVista(v); setActiveId(null); fetchState(); touchSession(); }}
-            onExport={exportarCSV} onReset={onReset} onImport={importarCSV}
+            onExport={exportarCSV} onReset={onReset} onImport={session.isAdmin ? importarCSV : undefined}
             session={session} onLogout={handleLogout} onAdmin={onAdmin}
             campaigns={campaigns} campania={campania} onSelectCampania={onSelectCampania} recordatoriosCount={recordatoriosCount} />
 
           {vista === 'dashboard' && <Dashboard clients={state.clients} log={state.log} stats={stats} campania={campania} />}
-          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} campania={campania} onClearRecordatorio={onClearRecordatorio} />}
+          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} campania={campania} onClearRecordatorio={onClearRecordatorio} onSetRecordatorio={onSetRecordatorio} />}
           {vista === 'admin' && session.isAdmin && <AdminView session={session} onCampaignsChange={fetchCampaigns} />}
           {vista === 'llamada' && activeCliente && (
             <CallPanel cliente={activeCliente} onResult={onResult} onNota={onNota}
