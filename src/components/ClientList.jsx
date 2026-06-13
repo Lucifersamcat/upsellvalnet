@@ -13,10 +13,17 @@ import { antiguedad, esVencido, fechaCorta, fechaHora } from '../utils';
       const [nota, setNota] = useState(target.nota || '');
       const today = new Date().toISOString().slice(0, 10);
 
+      useEffect(() => {
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, [onClose]);
+
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+          <div role="dialog" aria-modal="true" aria-label="Recordatorio"
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Icon.Bell className="h-4 w-4 text-amber-500" />

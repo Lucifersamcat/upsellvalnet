@@ -369,6 +369,9 @@ app.get('/api/state', (req, res) => {
 app.post('/api/state', (req, res) => {
   if (!requireAuth(req, res)) return;
   const { clients, log } = req.body;
+  if (!Array.isArray(clients) || !Array.isArray(log)) {
+    return res.status(400).json({ error: 'clients y log deben ser arreglos' });
+  }
   const data = readData();
   const otherClients = data.clients.filter(c => c.tier !== ACTIVE_TIER);
   data.clients = [...otherClients, ...clients];

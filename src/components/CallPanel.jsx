@@ -26,7 +26,7 @@ import { antiguedad, fechaCorta, fechaMasNMeses, telLink } from '../utils';
       );
     }
 
-    function CallPanel({ cliente, onResult, onNota, onBack, hayNext, campania, onSetRecordatorio }) {
+    function CallPanel({ cliente, onResult, onNota, onBack, hayNext, onNext, campania, onSetRecordatorio }) {
       const [paso, setPaso] = useState(0);
       const [nota, setNota] = useState(cliente.notas || '');
       const [objAbierta, setObjAbierta] = useState(null);
@@ -86,9 +86,17 @@ import { antiguedad, fechaCorta, fechaMasNMeses, telLink } from '../utils';
         <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
           {/* Barra superior */}
           <div className="mb-4 flex items-center justify-between">
-            <button onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:shadow">
-              <Icon.Arrow className="h-4 w-4" /> Volver a la lista
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:shadow">
+                <Icon.Arrow className="h-4 w-4" /> Volver a la lista
+              </button>
+              {onNext && hayNext && (
+                <button onClick={onNext} title="Ir al siguiente cliente pendiente"
+                  className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-bold text-brand-700 transition hover:bg-brand-100">
+                  Siguiente pendiente <Icon.Arrow className="h-4 w-4 rotate-180" />
+                </button>
+              )}
+            </div>
             <span className="hidden text-xs text-slate-400 sm:block">Atajos: <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">C</kbd> convertir · <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">N</kbd> no · <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">B</kbd> callback · <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">X</kbd> no contestó</span>
           </div>
 
