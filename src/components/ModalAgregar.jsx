@@ -6,6 +6,12 @@ import { useEffect, useState } from 'react';
     function ModalAgregar({ open, onClose, onSave }) {
       const [f, setF] = useState({ nombre:'', telefono:'', direccion:'', inicio:'' });
       useEffect(() => { if (open) setF({ nombre:'', telefono:'', direccion:'', inicio:'' }); }, [open]);
+      useEffect(() => {
+        if (!open) return;
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, [open, onClose]);
       if (!open) return null;
       const valido = f.nombre.trim() && f.telefono.trim();
       const campo = (k, label, type='text', ph='') => (
@@ -18,7 +24,8 @@ import { useEffect, useState } from 'react';
       );
       return (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" onClick={onClose}>
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="Agregar cliente"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
             <h3 className="mb-4 text-base font-bold text-slate-900">Agregar cliente</h3>
             <div className="space-y-3">
               {campo('nombre','Nombre completo','text','Ej: Ana María Reyes')}

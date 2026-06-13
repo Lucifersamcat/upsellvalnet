@@ -41,7 +41,7 @@ import { saveSession } from '../session';
                 <Icon.Signal className="h-7 w-7" />
               </div>
               <div className="text-xl font-extrabold tracking-tight text-slate-900">ValNet Wireless</div>
-              <div className="text-sm text-slate-500">ValNet Wireless · Gestión de Campañas</div>
+              <div className="text-sm text-slate-500">Gestión de Campañas</div>
             </div>
             <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="mb-4 text-base font-bold text-slate-900">Iniciar sesión</h2>
