@@ -82,6 +82,8 @@ import { Icon } from '../icons';
                 className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700">
                 <Icon.Download className="h-4 w-4" /><span className="hidden sm:inline">Exportar CSV</span>
               </button>
+              {/* Divider isolates the destructive reset from the safe export/import actions */}
+              <div className="mx-1 h-7 w-px bg-slate-200" aria-hidden="true"></div>
               <button onClick={onReset} title="Reiniciar campaña" aria-label="Reiniciar campaña"
                 className="rounded-xl border border-slate-200 px-2.5 py-2 text-slate-400 transition hover:border-rose-200 hover:text-rose-600">
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>

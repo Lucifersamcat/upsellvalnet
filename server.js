@@ -366,16 +366,54 @@ app.get('/api/state', (req, res) => {
 /* ----------------------------------------------------------------
    POST /api/state — save tier-999 changes, preserve other tiers
 ---------------------------------------------------------------- */
+/* ----------------------------------------------------------------
+   Per-client merge: keep whichever copy has the higher `rev`. A stale list
+   from another agent can't clobber edits it never saw, and clients the sender
+   doesn't know about (added concurrently) are preserved. Pure + exported so
+   the no-clobber property can be unit-tested without a live session.
+---------------------------------------------------------------- */
+function mergeClients(stored, incoming, deletedIds) {
+  const delSet = new Set((Array.isArray(deletedIds) ? deletedIds : []).map(String));
+  const incomingById = new Map(incoming.map(c => [String(c.id), c]));
+  const seen = new Set();
+  const merged = [];
+  for (const s of stored) {
+    const sid = String(s.id);
+    seen.add(sid);
+    if (delSet.has(sid)) continue; // explicitly deleted by sender
+    const inc = incomingById.get(sid);
+    if (inc) merged.push((inc.rev || 0) >= (s.rev || 0) ? inc : s);
+    else merged.push(s); // omitted from payload (stale) → keep server copy
+  }
+  for (const inc of incoming) {
+    const iid = String(inc.id);
+    if (!seen.has(iid) && !delSet.has(iid)) merged.push(inc); // brand-new
+  }
+  return merged;
+}
+
+// Campaign reset force-replaces the log; otherwise union by (id|at) so two
+// agents logging calls concurrently don't drop each other's entries.
+function mergeLog(existing, incoming, replaceLog) {
+  if (replaceLog) return incoming;
+  const key = (e) => `${e.id}|${e.at}`;
+  const byKey = new Map();
+  for (const e of [...(existing || []), ...incoming]) byKey.set(key(e), e);
+  return [...byKey.values()].sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
 app.post('/api/state', (req, res) => {
   if (!requireAuth(req, res)) return;
-  const { clients, log } = req.body;
+  const { clients, log, deletedIds, replaceLog } = req.body;
   if (!Array.isArray(clients) || !Array.isArray(log)) {
     return res.status(400).json({ error: 'clients y log deben ser arreglos' });
   }
   const data = readData();
   const otherClients = data.clients.filter(c => c.tier !== ACTIVE_TIER);
-  data.clients = [...otherClients, ...clients];
-  data.log = log;
+  const stored = data.clients.filter(c => c.tier === ACTIVE_TIER);
+
+  data.clients = [...otherClients, ...mergeClients(stored, clients, deletedIds)];
+  data.log = mergeLog(data.log, log, replaceLog);
   data.version += 1;
   writeData(data);
   res.json({ version: data.version });
@@ -401,7 +439,13 @@ app.post('/api/import', (req, res) => {
   res.json({ added: toAdd.length, skipped: incoming.length - toAdd.length });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`ValNet Upsell  →  http://localhost:${PORT}`);
-  console.log(`Red local      →  http://[IP-de-esta-PC]:${PORT}`);
-});
+// Only start the HTTP server when run directly (`node server.js`), so the
+// pure merge helpers can be required from a test without binding the port.
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`ValNet Upsell  →  http://localhost:${PORT}`);
+    console.log(`Red local      →  http://[IP-de-esta-PC]:${PORT}`);
+  });
+}
+
+module.exports = { app, mergeClients, mergeLog };
