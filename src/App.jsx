@@ -59,6 +59,10 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
       const etagRef = useRef(null);
       const isLoadingRef = useRef(false);
       const hasLoadedRef = useRef(false);
+      const postInFlightRef = useRef(false);
+      const replaceLogRef = useRef(false);
+      const vistaRef = useRef(vista);
+      vistaRef.current = vista;
 
       const fetchState = useCallback(async () => {
         const token = sessionRef.current?.token;
@@ -86,11 +90,14 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
 
       const postState = useCallback(async (s) => {
         const token = sessionRef.current?.token;
+        const replaceLog = replaceLogRef.current;
+        replaceLogRef.current = false;
+        postInFlightRef.current = true;
         try {
           const res = await fetch('/api/state', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token || '' },
-            body: JSON.stringify({ clients: s.clients, log: s.log }),
+            body: JSON.stringify({ clients: s.clients, log: s.log, deletedIds: s.deletedIds || [], replaceLog }),
           });
           if (res.status === 401) { logoutRef.current?.(); return; }
           if (res.ok) {
@@ -101,6 +108,8 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
           }
         } catch {
           showToastRef.current?.('Sin conexión — cambios no guardados', 'err');
+        } finally {
+          postInFlightRef.current = false;
         }
       }, []);
 
@@ -131,6 +140,20 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
         if (!hasLoadedRef.current) return;
         postState(state);
       }, [state]);
+
+      // Live refresh: poll the server so agents see each other's changes
+      // without navigating. ETag makes unchanged polls a cheap 304. Skip while
+      // a save is in flight (avoids clobbering the just-dispatched change) and
+      // during an active call (don't yank data out from under the agent).
+      useEffect(() => {
+        if (!session || !dataReady) return;
+        const id = setInterval(() => {
+          if (postInFlightRef.current) return;
+          if (vistaRef.current === 'llamada') return;
+          fetchState();
+        }, 12000);
+        return () => clearInterval(id);
+      }, [session?.token, dataReady, fetchState]);
 
       const showToast = (msg, tone='ok') => {
         setToast({ msg, tone });
@@ -227,6 +250,7 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
 
       const onReset = () => {
         if (window.confirm('¿Reiniciar la campaña? Esto pondrá a todos los clientes como "pendiente" y borrará notas, resultados y el registro de llamadas. Esta acción no se puede deshacer.')) {
+          replaceLogRef.current = true; // force-replace the log server-side (don't union-merge old entries back)
           dispatch({ type: 'LIMPIAR' });
           setVista('lista'); setActiveId(null);
           showToast('Campaña reiniciada', 'warn');
