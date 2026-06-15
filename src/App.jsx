@@ -9,7 +9,7 @@ import { Toast } from './components/Toast';
 import { ESTADOS, PLANES } from './constants';
 import { init, reducer } from './reducer';
 import { SESSION_KEY, loadSession, setCampaniaSession, touchSession } from './session';
-import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
+import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } from './utils';
 
     /* ============================================================
        APP PRINCIPAL
@@ -61,6 +61,7 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
       const hasLoadedRef = useRef(false);
       const postInFlightRef = useRef(false);
       const replaceLogRef = useRef(false);
+      const forceClientsRef = useRef(false);
       const vistaRef = useRef(vista);
       vistaRef.current = vista;
 
@@ -91,13 +92,15 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
       const postState = useCallback(async (s) => {
         const token = sessionRef.current?.token;
         const replaceLog = replaceLogRef.current;
+        const forceClients = forceClientsRef.current;
         replaceLogRef.current = false;
+        forceClientsRef.current = false;
         postInFlightRef.current = true;
         try {
           const res = await fetch('/api/state', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token || '' },
-            body: JSON.stringify({ clients: s.clients, log: s.log, deletedIds: s.deletedIds || [], replaceLog }),
+            body: JSON.stringify({ clients: s.clients, log: s.log, deletedIds: s.deletedIds || [], replaceLog, forceClients }),
           });
           if (res.status === 401) { logoutRef.current?.(); return; }
           if (res.ok) {
@@ -192,7 +195,9 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
         const idx = ordenLlamada.findIndex(c => c.id === desdeId);
         if (idx === -1) return null;
         for (let i = idx+1; i < ordenLlamada.length; i++) {
-          if (ordenLlamada[i].estado === 'pendiente' || ordenLlamada[i].estado === 'llamado') return ordenLlamada[i].id;
+          const c = ordenLlamada[i];
+          // Stay inside the active campaign so CallPanel's pitch matches the client.
+          if ((c.estado === 'pendiente' || c.estado === 'llamado') && matchesCampania(c, campania)) return c.id;
         }
         return null;
       };
@@ -250,7 +255,8 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
 
       const onReset = () => {
         if (window.confirm('¿Reiniciar la campaña? Esto pondrá a todos los clientes como "pendiente" y borrará notas, resultados y el registro de llamadas. Esta acción no se puede deshacer.')) {
-          replaceLogRef.current = true; // force-replace the log server-side (don't union-merge old entries back)
+          replaceLogRef.current = true;    // force-replace the log server-side (don't union-merge old entries back)
+          forceClientsRef.current = true;  // force-replace client rows too, bypassing rev merge, so the reset can't be partially undone
           dispatch({ type: 'LIMPIAR' });
           setVista('lista'); setActiveId(null);
           showToast('Campaña reiniciada', 'warn');

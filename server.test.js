@@ -64,6 +64,24 @@ test('mixed id types (numeric vs cédula string) merge by string key', () => {
   assert.equal(merged[0].estado, 'convertido');
 });
 
+test('force (campaign reset) overrides a higher-rev server row', () => {
+  // Another agent took + converted client 1 (rev 5) after the resetter synced.
+  const stored = [{ id: 1, estado: 'convertido', rev: 5 }];
+  // Reset payload bumps the resetter's stale rev to only 4 (lower than server).
+  const incoming = [{ id: 1, estado: 'pendiente', rev: 4 }];
+  const withoutForce = mergeClients(stored, incoming, [], false);
+  assert.equal(withoutForce.find(c => c.id === 1).estado, 'convertido', 'rev merge would leave it unreset');
+  const withForce = mergeClients(stored, incoming, [], true);
+  assert.equal(withForce.find(c => c.id === 1).estado, 'pendiente', 'force resets it');
+});
+
+test('force still preserves clients the resetter never saw', () => {
+  const stored = [{ id: 1, rev: 5 }, { id: 99, nombre: 'Otro agente', rev: 1 }];
+  const incoming = [{ id: 1, estado: 'pendiente', rev: 4 }];
+  const merged = mergeClients(stored, incoming, [], true);
+  assert.ok(merged.find(c => c.id === 99), 'concurrently-added client is not dropped by reset');
+});
+
 /* mergeLog — union vs force-replace */
 
 test('mergeLog unions entries from both agents without duplicates', () => {

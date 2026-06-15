@@ -372,7 +372,7 @@ app.get('/api/state', (req, res) => {
    doesn't know about (added concurrently) are preserved. Pure + exported so
    the no-clobber property can be unit-tested without a live session.
 ---------------------------------------------------------------- */
-function mergeClients(stored, incoming, deletedIds) {
+function mergeClients(stored, incoming, deletedIds, force = false) {
   const delSet = new Set((Array.isArray(deletedIds) ? deletedIds : []).map(String));
   const incomingById = new Map(incoming.map(c => [String(c.id), c]));
   const seen = new Set();
@@ -382,7 +382,9 @@ function mergeClients(stored, incoming, deletedIds) {
     seen.add(sid);
     if (delSet.has(sid)) continue; // explicitly deleted by sender
     const inc = incomingById.get(sid);
-    if (inc) merged.push((inc.rev || 0) >= (s.rev || 0) ? inc : s);
+    // `force` (campaign reset) makes the incoming row win regardless of rev, so
+    // a reset can't be partially undone by a higher-rev row another agent saved.
+    if (inc) merged.push(force || (inc.rev || 0) >= (s.rev || 0) ? inc : s);
     else merged.push(s); // omitted from payload (stale) → keep server copy
   }
   for (const inc of incoming) {
@@ -404,7 +406,7 @@ function mergeLog(existing, incoming, replaceLog) {
 
 app.post('/api/state', (req, res) => {
   if (!requireAuth(req, res)) return;
-  const { clients, log, deletedIds, replaceLog } = req.body;
+  const { clients, log, deletedIds, replaceLog, forceClients } = req.body;
   if (!Array.isArray(clients) || !Array.isArray(log)) {
     return res.status(400).json({ error: 'clients y log deben ser arreglos' });
   }
@@ -412,7 +414,7 @@ app.post('/api/state', (req, res) => {
   const otherClients = data.clients.filter(c => c.tier !== ACTIVE_TIER);
   const stored = data.clients.filter(c => c.tier === ACTIVE_TIER);
 
-  data.clients = [...otherClients, ...mergeClients(stored, clients, deletedIds)];
+  data.clients = [...otherClients, ...mergeClients(stored, clients, deletedIds, forceClients)];
   data.log = mergeLog(data.log, log, replaceLog);
   data.version += 1;
   writeData(data);

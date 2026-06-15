@@ -43,4 +43,17 @@
       return 'tel:+1' + digits;
     }
 
-export { mesesEntre, antiguedad, fechaCorta, fechaHora, esHoy, esVencido, fechaMasNMeses, telLink };
+    // Single source of truth for whether a client belongs to the active
+    // campaign. Used by both the list filter and next-client navigation so the
+    // two can't drift apart (which previously let "Siguiente" jump to a client
+    // outside the campaign while CallPanel showed the campaign's pitch).
+    function matchesCampania(cliente, campania) {
+      if (!campania) return true;
+      const planMatch = !campania.planActual ||
+        (cliente.plan || '').toLowerCase() === campania.planActual.toLowerCase();
+      const zonaMatch = !campania.filtroZona ||
+        (cliente.direccion || '').toLowerCase().includes(campania.filtroZona.toLowerCase());
+      return planMatch && zonaMatch;
+    }
+
+export { mesesEntre, antiguedad, fechaCorta, fechaHora, esHoy, esVencido, fechaMasNMeses, telLink, matchesCampania };
