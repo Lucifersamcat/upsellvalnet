@@ -34,7 +34,8 @@ import { Icon } from '../icons';
               <select
                 value={campania ? campania.id : ''}
                 onChange={e => onSelectCampania(e.target.value ? Number(e.target.value) : null)}
-                className="hidden rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-brand-500 sm:block">
+                aria-label="Seleccionar campaña"
+                className="max-w-[10rem] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-brand-500">
                 <option value="">Sin campaña</option>
                 {(campaigns || []).map(c => (
                   <option key={c.id} value={c.id}>{c.nombre}</option>

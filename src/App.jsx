@@ -370,6 +370,7 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora } from './utils';
             <CallPanel cliente={activeCliente} onResult={onResult} onNota={onNota}
               onBack={() => { setVista('lista'); setActiveId(null); }}
               hayNext={!!siguientePendiente(activeCliente.id)}
+              onNext={() => { const n = siguientePendiente(activeCliente.id); if (n) setActiveId(n); }}
               campania={campania} onSetRecordatorio={onSetRecordatorio} />
           )}
 
