@@ -3,7 +3,7 @@ import { Badge } from './Badge';
 import { ModalAgregar } from './ModalAgregar';
 import { ESTADOS, ORDEN_ESTADOS } from '../constants';
 import { Icon } from '../icons';
-import { antiguedad, esVencido, fechaCorta, fechaHora } from '../utils';
+import { antiguedad, esVencido, fechaCorta, fechaHora, matchesCampania } from '../utils';
 
     /* ============================================================
        MODAL RECORDATORIO
@@ -93,16 +93,9 @@ import { antiguedad, esVencido, fechaCorta, fechaHora } from '../utils';
         setReminderTarget({ id: c.id, nombre: c.nombre, fecha: c.recordatorio?.fecha || '', nota: c.recordatorio?.nota || '' });
       };
 
-      const clientesFiltradosCampania = useMemo(() => {
-        if (!campania) return clients;
-        return clients.filter(c => {
-          const planMatch = !campania.planActual ||
-            (c.plan || '').toLowerCase() === campania.planActual.toLowerCase();
-          const zonaMatch = !campania.filtroZona ||
-            (c.direccion || '').toLowerCase().includes(campania.filtroZona.toLowerCase());
-          return planMatch && zonaMatch;
-        });
-      }, [clients, campania]);
+      const clientesFiltradosCampania = useMemo(() =>
+        campania ? clients.filter(c => matchesCampania(c, campania)) : clients,
+      [clients, campania]);
 
       const recordatoriosVencidos = useMemo(() =>
         clients.filter(c => c.recordatorio && esVencido(c.recordatorio.fecha))
