@@ -105,4 +105,46 @@ async function runSyncTool(tool, readData, writeData, fetchImpl) {
   return { ok: true, total: incoming.length, creados, actualizados, sinCambios };
 }
 
-module.exports = { TIPO_MIKROWISP, DEFAULT_TIMEOUT, buildRequest, mapMikrowispClient, upsertClients, fetchMikrowispClients, runSyncTool };
+const METODOS = ['GET', 'POST', 'PUT', 'DELETE'];
+const TIPOS = ['ninguno', 'mikrowisp-clientes'];
+const MODOS_AUTH = ['none', 'bearer', 'apikey', 'body'];
+const TIPOS_PARAM = ['string', 'number', 'boolean'];
+
+// Valida/normaliza el body de una herramienta. `existing` = tool previa (al editar)
+// para conservar el secreto cuando llega vacío. Devuelve { error } o { value }.
+function parseToolBody(body, existing) {
+  const nombre = String(body.nombre || '').trim();
+  const endpoint = String(body.endpoint || '').trim();
+  if (!nombre) return { error: 'Nombre requerido' };
+  if (!/^https?:\/\//i.test(endpoint)) return { error: 'Endpoint debe ser una URL http(s)' };
+  const metodo = METODOS.includes(body.metodo) ? body.metodo : 'POST';
+  const tipo = TIPOS.includes(body.tipo) ? body.tipo : 'ninguno';
+  const parametros = (Array.isArray(body.parametros) ? body.parametros : [])
+    .map(p => ({
+      nombre: String(p.nombre || '').trim(),
+      tipo: TIPOS_PARAM.includes(p.tipo) ? p.tipo : 'string',
+      descripcion: String(p.descripcion || '').trim(),
+      requerido: !!p.requerido,
+    }))
+    .filter(p => p.nombre);
+  const am = body.auth || {};
+  const modo = MODOS_AUTH.includes(am.modo) ? am.modo : 'none';
+  let valor = typeof am.valor === 'string' ? am.valor : '';
+  if (valor === '' && existing && existing.auth) valor = existing.auth.valor || '';
+  const auth = { modo, campo: String(am.campo || '').trim(), valor };
+  const timeoutMs = Number(body.timeoutMs) > 0 ? Number(body.timeoutMs) : DEFAULT_TIMEOUT;
+  const cacheTtl = Number(body.cacheTtl) >= 0 ? Number(body.cacheTtl) : 0;
+  const activa = body.activa !== false;
+  return { value: { nombre, descripcion: String(body.descripcion || '').trim(), tipo, endpoint, metodo, parametros, auth, timeoutMs, cacheTtl, activa } };
+}
+
+// Versión segura para el cliente: sin auth.valor, con tieneValor.
+function publicTool(t) {
+  const auth = t.auth || { modo: 'none', campo: '' };
+  return {
+    ...t,
+    auth: { modo: auth.modo, campo: auth.campo, tieneValor: !!(auth.valor && auth.valor.length) },
+  };
+}
+
+module.exports = { TIPO_MIKROWISP, DEFAULT_TIMEOUT, buildRequest, mapMikrowispClient, upsertClients, fetchMikrowispClients, runSyncTool, parseToolBody, publicTool };

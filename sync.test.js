@@ -135,3 +135,38 @@ test('runSyncTool: HTTP no-ok → lanza error', async () => {
     /HTTP 405/
   );
 });
+
+// Task 5: parseToolBody + publicTool
+const { parseToolBody, publicTool } = require('./sync');
+
+test('parseToolBody: rechaza endpoint no-URL', () => {
+  const r = parseToolBody({ nombre: 'X', endpoint: 'no-url' }, null);
+  assert.ok(r.error);
+});
+
+test('parseToolBody: normaliza método/tipo/params y defaults', () => {
+  const r = parseToolBody({
+    nombre: ' Buscar ', endpoint: 'https://x/api', metodo: 'PATCH', tipo: 'mikrowisp-clientes',
+    parametros: [{ nombre: 'cedula', tipo: 'string', descripcion: 'd', requerido: true }, { nombre: '' }],
+    auth: { modo: 'body', campo: 'token', valor: 'SEC' },
+  }, null);
+  assert.strictEqual(r.value.nombre, 'Buscar');
+  assert.strictEqual(r.value.metodo, 'POST');        // PATCH no permitido → POST
+  assert.strictEqual(r.value.tipo, 'mikrowisp-clientes');
+  assert.strictEqual(r.value.parametros.length, 1);  // el de nombre vacío se descarta
+  assert.strictEqual(r.value.timeoutMs, 15000);
+  assert.strictEqual(r.value.auth.valor, 'SEC');
+});
+
+test('parseToolBody: valor vacío al editar conserva el anterior', () => {
+  const existing = { auth: { modo: 'body', campo: 'token', valor: 'PREV' } };
+  const r = parseToolBody({ nombre: 'X', endpoint: 'https://x', auth: { modo: 'body', campo: 'token', valor: '' } }, existing);
+  assert.strictEqual(r.value.auth.valor, 'PREV');
+});
+
+test('publicTool: oculta el secreto y expone tieneValor', () => {
+  const pub = publicTool({ id: 1, nombre: 'X', auth: { modo: 'body', campo: 'token', valor: 'SEC' } });
+  assert.strictEqual(pub.auth.valor, undefined);
+  assert.strictEqual(pub.auth.tieneValor, true);
+  assert.strictEqual(pub.auth.campo, 'token');
+});
