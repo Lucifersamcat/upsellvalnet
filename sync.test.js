@@ -58,3 +58,42 @@ test('mapMikrowispClient: telefono cae a movil si telefono vacío', () => {
   const c = mapMikrowispClient({ id: 1, cedula: '9', telefono: '', movil: '809' });
   assert.strictEqual(c.telefono, '809');
 });
+
+// Task 3: upsertClients
+const { upsertClients } = require('./sync');
+
+test('upsertClients: cliente nuevo se crea con esquema completo', () => {
+  const data = { version: 1, clients: [], log: [] };
+  const r = upsertClients(data, [{ id: '999', nombre: 'Ana', telefono: '809', direccion: 'Calle', inicio: '2026-01-01', plan: 'Fibra', idMikrowisp: 5 }]);
+  assert.strictEqual(r.creados, 1);
+  const c = data.clients[0];
+  assert.strictEqual(c.id, '999');
+  assert.strictEqual(c.tier, '999');
+  assert.strictEqual(c.estado, 'pendiente');
+  assert.strictEqual(c.rev, 1);
+  assert.strictEqual(c.notas, '');
+});
+
+test('upsertClients: existente actualiza datos de origen y PRESERVA estado/notas', () => {
+  const data = { version: 3, clients: [{
+    id: '999', nombre: 'Ana V', telefono: 'viejo', direccion: 'vieja', plan: 'A',
+    tier: '999', estado: 'convertido', notas: 'cliente top', recordatorio: { fecha: 'x' }, rev: 4,
+  }], log: [] };
+  const r = upsertClients(data, [{ id: '999', nombre: 'Ana Nueva', telefono: '8290000000', direccion: 'nueva', plan: 'B' }]);
+  assert.strictEqual(r.actualizados, 1);
+  const c = data.clients[0];
+  assert.strictEqual(c.nombre, 'Ana Nueva');
+  assert.strictEqual(c.telefono, '8290000000');
+  assert.strictEqual(c.estado, 'convertido');        // preservado
+  assert.strictEqual(c.notas, 'cliente top');        // preservado
+  assert.deepStrictEqual(c.recordatorio, { fecha: 'x' }); // preservado
+  assert.strictEqual(c.rev, 5);                      // subió para ganar el merge
+});
+
+test('upsertClients: sin cambios no toca rev ni cuenta como actualizado', () => {
+  const data = { version: 1, clients: [{ id: '1', nombre: 'Z', telefono: '1', direccion: 'd', plan: 'p', estado: 'pendiente', rev: 2 }], log: [] };
+  const r = upsertClients(data, [{ id: '1', nombre: 'Z', telefono: '1', direccion: 'd', plan: 'p' }]);
+  assert.strictEqual(r.actualizados, 0);
+  assert.strictEqual(r.sinCambios, 1);
+  assert.strictEqual(data.clients[0].rev, 2);
+});

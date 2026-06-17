@@ -20,6 +20,45 @@ function buildRequest(tool, params = {}) {
   return { url: tool.endpoint, method: tool.metodo || 'POST', headers, body };
 }
 
+const SOURCE_FIELDS = ['nombre', 'telefono', 'direccion', 'plan'];
+
+// Muta `data.clients` in-place. Devuelve conteos. NO incrementa data.version
+// (eso lo decide el caller para escribir el archivo solo si hubo cambios).
+function upsertClients(data, incoming) {
+  const byId = new Map(data.clients.map(c => [String(c.id), c]));
+  let creados = 0, actualizados = 0, sinCambios = 0;
+  for (const m of incoming) {
+    const key = String(m.id);
+    const existing = byId.get(key);
+    if (!existing) {
+      const nuevo = {
+        id: m.id, nombre: m.nombre || '', telefono: m.telefono || '',
+        direccion: m.direccion || '', inicio: m.inicio || '', plan: m.plan || '',
+        idMikrowisp: m.idMikrowisp, tier: '999', estado: 'pendiente', notas: '',
+        callbackAt: null, lastContact: null, recordatorio: null, rev: 1,
+      };
+      data.clients.push(nuevo);
+      byId.set(key, nuevo);
+      creados++;
+    } else {
+      let changed = false;
+      for (const f of SOURCE_FIELDS) {
+        if (m[f] !== undefined && m[f] !== '' && existing[f] !== m[f]) {
+          existing[f] = m[f];
+          changed = true;
+        }
+      }
+      if (m.idMikrowisp !== undefined && existing.idMikrowisp !== m.idMikrowisp) {
+        existing.idMikrowisp = m.idMikrowisp;
+        changed = true;
+      }
+      if (changed) { existing.rev = (existing.rev || 0) + 1; actualizados++; }
+      else sinCambios++;
+    }
+  }
+  return { creados, actualizados, sinCambios };
+}
+
 function mapMikrowispClient(raw) {
   const cedula = raw.cedula ? String(raw.cedula).trim() : '';
   const servicio = Array.isArray(raw.servicios) && raw.servicios[0] ? raw.servicios[0] : {};
@@ -34,4 +73,4 @@ function mapMikrowispClient(raw) {
   };
 }
 
-module.exports = { TIPO_MIKROWISP, DEFAULT_TIMEOUT, buildRequest, mapMikrowispClient };
+module.exports = { TIPO_MIKROWISP, DEFAULT_TIMEOUT, buildRequest, mapMikrowispClient, upsertClients };
