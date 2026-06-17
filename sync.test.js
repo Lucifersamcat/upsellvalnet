@@ -27,3 +27,34 @@ test('buildRequest: modo body → token en el body bajo el campo', () => {
   const r = buildRequest({ ...base, auth: { modo: 'body', campo: 'token', valor: 'SECRET' } }, { cedula: '1' });
   assert.deepStrictEqual(r.body, { cedula: '1', token: 'SECRET' });
 });
+
+// Task 2: mapMikrowispClient
+const { mapMikrowispClient } = require('./sync');
+
+const rawReal = {
+  id: 8553, nombre: 'JANIO ELIAS CASASNOVAS JORGE', estado: 'ACTIVO',
+  telefono: '8297676179', movil: '8297676179', cedula: '02301485955',
+  direccion_principal: 'C/ HATUEY #90 PLACER BONITO', Plan: '1 GB-Fibra Optica',
+  servicios: [{ instalado: '2026-05-13', perfil: '1 GB-Fibra Optica' }],
+};
+
+test('mapMikrowispClient: usa cédula como id y mapea campos reales', () => {
+  const c = mapMikrowispClient(rawReal);
+  assert.strictEqual(c.id, '02301485955');
+  assert.strictEqual(c.nombre, 'JANIO ELIAS CASASNOVAS JORGE');
+  assert.strictEqual(c.telefono, '8297676179');
+  assert.strictEqual(c.direccion, 'C/ HATUEY #90 PLACER BONITO');
+  assert.strictEqual(c.inicio, '2026-05-13');
+  assert.strictEqual(c.plan, '1 GB-Fibra Optica');
+  assert.strictEqual(c.idMikrowisp, 8553);
+});
+
+test('mapMikrowispClient: sin cédula → id fallback mw-<id>', () => {
+  const c = mapMikrowispClient({ id: 42, nombre: 'X', cedula: '' });
+  assert.strictEqual(c.id, 'mw-42');
+});
+
+test('mapMikrowispClient: telefono cae a movil si telefono vacío', () => {
+  const c = mapMikrowispClient({ id: 1, cedula: '9', telefono: '', movil: '809' });
+  assert.strictEqual(c.telefono, '809');
+});

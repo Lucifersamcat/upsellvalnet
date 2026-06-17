@@ -20,4 +20,18 @@ function buildRequest(tool, params = {}) {
   return { url: tool.endpoint, method: tool.metodo || 'POST', headers, body };
 }
 
-module.exports = { TIPO_MIKROWISP, DEFAULT_TIMEOUT, buildRequest };
+function mapMikrowispClient(raw) {
+  const cedula = raw.cedula ? String(raw.cedula).trim() : '';
+  const servicio = Array.isArray(raw.servicios) && raw.servicios[0] ? raw.servicios[0] : {};
+  return {
+    id: cedula || `mw-${raw.id}`,
+    nombre: raw.nombre || '',
+    telefono: raw.telefono || raw.movil || '',
+    direccion: raw.direccion_principal || '',
+    inicio: servicio.instalado || '',
+    plan: raw.Plan || servicio.perfil || '',
+    idMikrowisp: raw.id,
+  };
+}
+
+module.exports = { TIPO_MIKROWISP, DEFAULT_TIMEOUT, buildRequest, mapMikrowispClient };
