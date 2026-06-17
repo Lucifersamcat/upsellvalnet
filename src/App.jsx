@@ -249,7 +249,14 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } 
         showToast('Cliente asignado a ti');
       };
 
-      const onAdd = (cliente) => { dispatch({ type: 'AGREGAR', cliente }); showToast('Cliente agregado a la lista'); };
+      const onAdd = (cliente) => {
+        dispatch({ type: 'AGREGAR', cliente });
+        if (campania && !matchesCampania(cliente, campania)) {
+          showToast(`Agregado, pero no coincide con la campaña "${campania.nombre}" — no aparecerá en esta lista`, 'warn');
+        } else {
+          showToast('Cliente agregado a la lista');
+        }
+      };
 
       const onAdmin = () => { setVista('admin'); setActiveId(null); };
 

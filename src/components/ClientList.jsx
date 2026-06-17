@@ -133,7 +133,7 @@ import { antiguedad, esVencido, fechaCorta, fechaHora, matchesCampania } from '.
 
       return (
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-          <ModalAgregar open={modal} onClose={() => setModal(false)} onSave={(c) => { onAdd(c); setModal(false); }} />
+          <ModalAgregar open={modal} onClose={() => setModal(false)} campania={campania} onSave={(c) => { onAdd(c); setModal(false); }} />
 
           {reminderTarget && onSetRecordatorio && (
             <ModalRecordatorio

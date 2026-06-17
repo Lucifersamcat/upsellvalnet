@@ -2,6 +2,8 @@
 .DS_Store
 Thumbs.db
 node_modules/
+.env
+.env.local
 data.json
 agents.json
 campaigns.json
