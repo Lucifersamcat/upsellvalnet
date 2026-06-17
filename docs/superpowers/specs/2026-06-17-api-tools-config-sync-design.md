@@ -80,8 +80,17 @@ Todos los endpoints son admin (`X-Auth-Token` + `requireAdmin`), igual que agent
   - `body`   → `body[campo] = valor` (combinado con `parametros`)
   - `none`   → nada
   Usa `AbortController` con `timeoutMs`.
-- `mapMikrowispClient(raw)` → `{ id: cedula, nombre, telefono, direccion, plan }`.
-  *(Nombres de campo exactos a confirmar contra una respuesta real — ver "Pendientes".)*
+- La respuesta viene envuelta: `{ estado: 'exito', datos: [ ...clientes ] }`. El motor valida
+  `estado === 'exito'` y recorre `datos[]`.
+- `mapMikrowispClient(raw)` (mapeo real, confirmado contra respuesta de producción):
+  - `id`        ← `String(raw.cedula)`  *(match key; si `cedula` viene vacío, fallback `mw-<raw.id>`)*
+  - `nombre`    ← `raw.nombre`
+  - `telefono`  ← `raw.telefono || raw.movil || ''`
+  - `direccion` ← `raw.direccion_principal || ''`
+  - `inicio`    ← `raw.servicios?.[0]?.instalado || ''`  *(fecha de instalación)*
+  - `plan`      ← ver "Mapeo de plan" abajo
+  - `idMikrowisp` ← `raw.id`  *(id interno, guardado para futuros usos; no se muestra)*
+  - **No** se mapea `raw.estado` (`"ACTIVO"` = estado de cuenta) al `estado` de llamada de la app.
 - `upsertClients(data, incoming)`:
   - **Nuevo** (no existe `String(id)`): se crea con el esquema completo del reducer —
     `tier:'999'`, `estado:'pendiente'`, `notas:''`, `callbackAt:null`, `lastContact:null`,
@@ -128,12 +137,21 @@ Nueva pestaña **"API"** en `AdminView` (solo admin), que replica la captura:
 - `upsertClients` — crear nuevo / actualizar existente / **preservar `estado` y `notas`**.
 - Handler de `run` con `fetch` mockeado (éxito y fallo de red).
 
+### Mapeo de plan
+
+MikroWisp devuelve el perfil técnico (`raw.Plan` = `"1 GB-Fibra Optica"`, `idperfil: 141`), que
+**no** coincide con los planes comerciales de la app (`PLANES`: `Conectao'`, `Doméstico`, …). El
+`plan` del cliente sincronizado se guarda **tal cual** desde MikroWisp; queda **pendiente** definir
+la regla de mapeo perfil→`PLANES` (ver Pendientes). Esto solo afecta el filtro por plan de las
+campañas; en la lista principal (`tier:'999'`) los clientes aparecen igual.
+
 ## Pendientes a confirmar al implementar
 
-1. **Respuesta real** de `GetClientsDetails`: nombres de campo exactos y ruta al arreglo de
-   clientes (para fijar `mapMikrowispClient`).
-2. Confirmar que el mismo endpoint devuelve **la lista completa** (sin filtrar por cédula) o si hay
-   **paginación** (limit/offset) / un endpoint de listado aparte.
+1. **Mapeo de plan** MikroWisp→`PLANES`: definir si se mapea por `idperfil`/nombre de perfil a un
+   plan comercial, o si se deja el nombre crudo de MikroWisp (afecta solo el filtro de campañas).
+2. **Listado completo / paginación:** la prueba fue con una cédula y devolvió 1 cliente en `datos[]`.
+   Confirmar cómo `GetClientsDetails` devuelve **todos** los clientes (¿sin filtro? ¿`limit`/`offset`?)
+   para armar el barrido del sync.
 3. `fetch` global requiere Node 18+ (README declara Node 20+): OK, sin dependencias nuevas.
 
 ## No incluido (YAGNI)
