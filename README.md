@@ -1,6 +1,6 @@
-# ValNet Wireless — Campaña Upsell 40/40
+# ValNet Wireless — Campaña Upsell 
 
-Herramienta interna para gestionar la campaña de llamadas que sube clientes del plan 20/20 ($999) al plan 40/40, con promoción de 3 meses al mismo precio.
+Herramienta interna para gestionar la campaña de llamadas a cliente, con promoción.
 
 ## Stack
 
