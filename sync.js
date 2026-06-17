@@ -73,4 +73,36 @@ function mapMikrowispClient(raw) {
   };
 }
 
-module.exports = { TIPO_MIKROWISP, DEFAULT_TIMEOUT, buildRequest, mapMikrowispClient, upsertClients };
+async function fetchMikrowispClients(tool, fetchImpl) {
+  const doFetch = fetchImpl || fetch;
+  const { url, method, headers, body } = buildRequest(tool, {});
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), tool.timeoutMs || DEFAULT_TIMEOUT);
+  let res;
+  try {
+    res = await doFetch(url, { method, headers, body: JSON.stringify(body), signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.estado !== 'exito' || !Array.isArray(json.datos)) {
+    throw new Error(`Respuesta inesperada: estado=${json.estado}`);
+  }
+  return json.datos;
+}
+
+// Orquesta: fetch → map → upsert → persistir (solo si hubo cambios).
+async function runSyncTool(tool, readData, writeData, fetchImpl) {
+  const datos = await fetchMikrowispClients(tool, fetchImpl);
+  const incoming = datos.map(mapMikrowispClient);
+  const data = readData();
+  const { creados, actualizados, sinCambios } = upsertClients(data, incoming);
+  if (creados > 0 || actualizados > 0) {
+    data.version += 1;
+    writeData(data);
+  }
+  return { ok: true, total: incoming.length, creados, actualizados, sinCambios };
+}
+
+module.exports = { TIPO_MIKROWISP, DEFAULT_TIMEOUT, buildRequest, mapMikrowispClient, upsertClients, fetchMikrowispClients, runSyncTool };

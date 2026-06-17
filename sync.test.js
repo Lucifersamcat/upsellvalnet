@@ -97,3 +97,41 @@ test('upsertClients: sin cambios no toca rev ni cuenta como actualizado', () => 
   assert.strictEqual(r.sinCambios, 1);
   assert.strictEqual(data.clients[0].rev, 2);
 });
+
+// Task 4: runSyncTool
+const { runSyncTool } = require('./sync');
+
+const tool = { endpoint: 'https://x', metodo: 'POST', timeoutMs: 5000, auth: { modo: 'body', campo: 'token', valor: 'T' } };
+
+function fakeFetch(payload, ok = true, status = 200) {
+  return async () => ({ ok, status, json: async () => payload });
+}
+
+test('runSyncTool: éxito → upsert + version sube si hubo cambios', async () => {
+  let stored = { version: 1, clients: [], log: [] };
+  const read = () => stored;
+  const write = (d) => { stored = d; };
+  const payload = { estado: 'exito', datos: [{ id: 1, cedula: '5', nombre: 'A' }] };
+  const r = await runSyncTool(tool, read, write, fakeFetch(payload));
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.creados, 1);
+  assert.strictEqual(stored.version, 2);
+  assert.strictEqual(stored.clients.length, 1);
+});
+
+test('runSyncTool: estado != exito → lanza error', async () => {
+  const read = () => ({ version: 1, clients: [], log: [] });
+  const write = () => {};
+  await assert.rejects(
+    () => runSyncTool(tool, read, write, fakeFetch({ estado: 'error', mensaje: 'token malo' })),
+    /Respuesta inesperada/
+  );
+});
+
+test('runSyncTool: HTTP no-ok → lanza error', async () => {
+  const read = () => ({ version: 1, clients: [], log: [] });
+  await assert.rejects(
+    () => runSyncTool(tool, read, () => {}, fakeFetch({}, false, 405)),
+    /HTTP 405/
+  );
+});
