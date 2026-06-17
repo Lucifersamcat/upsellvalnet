@@ -1,6 +1,6 @@
 # ValNet Wireless — Campaña Upsell 
 
-Herramienta interna para gestionar la campaña de llamadas a cliente, con promoción.
+Herramienta interna para gestionar la campaña de llamadas a clientes con promoción.
 
 ## Stack
 
