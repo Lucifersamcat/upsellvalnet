@@ -140,19 +140,28 @@ Nueva pestaña **"API"** en `AdminView` (solo admin), que replica la captura:
 ### Mapeo de plan
 
 MikroWisp devuelve el perfil técnico (`raw.Plan` = `"1 GB-Fibra Optica"`, `idperfil: 141`), que
-**no** coincide con los planes comerciales de la app (`PLANES`: `Conectao'`, `Doméstico`, …). El
-`plan` del cliente sincronizado se guarda **tal cual** desde MikroWisp; queda **pendiente** definir
-la regla de mapeo perfil→`PLANES` (ver Pendientes). Esto solo afecta el filtro por plan de las
-campañas; en la lista principal (`tier:'999'`) los clientes aparecen igual.
+**no** coincide con los planes comerciales de la app (`PLANES`: `Conectao'`, `Doméstico`, …).
+**Decisión:** el `plan` se guarda **tal cual** desde MikroWisp (`raw.Plan`). Esto solo afecta el
+filtro por plan de las campañas; en la lista principal (`tier:'999'`) los clientes aparecen igual.
+Un mapeo perfil→`PLANES` queda como mejora posterior si se necesita.
+
+## Estrategia de listado
+
+La prueba fue con una cédula y devolvió 1 cliente en `datos[]`. El sync llama a `GetClientsDetails`
+**sin filtro de cédula** (con los `parametros` configurados) y recorre `datos[]`. Si la respuesta
+trae señales de paginación o un tope de filas, se añade un **bucle `limit`/`offset`** hasta agotar.
+Se verifica con una llamada real durante la implementación; el resto del diseño no cambia.
 
 ## Pendientes a confirmar al implementar
 
-1. **Mapeo de plan** MikroWisp→`PLANES`: definir si se mapea por `idperfil`/nombre de perfil a un
-   plan comercial, o si se deja el nombre crudo de MikroWisp (afecta solo el filtro de campañas).
-2. **Listado completo / paginación:** la prueba fue con una cédula y devolvió 1 cliente en `datos[]`.
-   Confirmar cómo `GetClientsDetails` devuelve **todos** los clientes (¿sin filtro? ¿`limit`/`offset`?)
-   para armar el barrido del sync.
-3. `fetch` global requiere Node 18+ (README declara Node 20+): OK, sin dependencias nuevas.
+1. **Listado completo:** confirmar con una llamada real si `GetClientsDetails` sin cédula devuelve
+   todos los clientes o si pagina (y los nombres de los parámetros de paginación).
+2. `fetch` global requiere Node 18+ (README declara Node 20+): OK, sin dependencias nuevas.
+
+## Resuelto
+
+- Mapeo de campos MikroWisp→cliente (respuesta real de producción, ver "Motor de sync").
+- Plan: se guarda el valor crudo de MikroWisp (`raw.Plan`).
 
 ## No incluido (YAGNI)
 
