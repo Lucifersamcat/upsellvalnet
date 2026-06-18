@@ -47,6 +47,7 @@ DATA_DIR=/ruta/a/datos   # opcional; por defecto usa el directorio del proyecto
 - **Campañas** — múltiples campañas con planes, precios y filtro de zona (admin)
 - **Gestión de agentes** — crear, eliminar, asignar rol admin (admin)
 - **Importar clientes** — CSV bulk via `/api/import` (admin)
+- **Configurador de API** — herramientas API configurables (endpoint, método, auth) y sync automático de clientes desde MikroWisp: al arrancar, cada 24 h y con botón manual (admin)
 - **Exportar resultados** — CSV con todos los campos
 
 ## Seguridad
@@ -54,7 +55,7 @@ DATA_DIR=/ruta/a/datos   # opcional; por defecto usa el directorio del proyecto
 - Cabeceras HTTP: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`
 - Rate limiting en login: 5 intentos fallidos / 15 min por IP
 - Audit log en consola: LOGIN, LOGOUT, AGENT_CREATE, AGENT_DELETE, IMPORT
-- Datos sensibles (`data.json`, `agents.json`, `campaigns.json`) en `.gitignore`
+- Datos sensibles (`data.json`, `agents.json`, `campaigns.json`, `apitools.json`) en `.gitignore`
 
 ## Estructura
 

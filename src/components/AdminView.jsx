@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PLANES, RD, planInfo } from '../constants';
 import { Icon } from '../icons';
+import { ApiToolsTab } from './ApiToolsTab';
 
     /* ============================================================
        ADMIN VIEW
@@ -128,7 +129,7 @@ import { Icon } from '../icons';
       <p className="mb-4 text-sm text-slate-500">Gestiona agentes y campañas.</p>
 
       <div className="mb-5 flex gap-1 rounded-xl bg-slate-100 p-1 w-fit">
-        {[['agentes','Agentes'],['promos','Campañas']].map(([id,label]) => (
+        {[['agentes','Agentes'],['promos','Campañas'],['api','API']].map(([id,label]) => (
           <button key={id} onClick={() => setTab(id)}
             className={'rounded-lg px-5 py-1.5 text-sm font-semibold transition ' + (tab === id ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-800')}>
             {label}
@@ -254,6 +255,8 @@ import { Icon } from '../icons';
           )}
         </div>
       )}
+
+      {tab === 'api' && <ApiToolsTab session={session} />}
     </div>
   );
 }

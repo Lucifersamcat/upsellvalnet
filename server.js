@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
+const { runSyncTool, parseToolBody, publicTool, TIPO_MIKROWISP } = require('./sync');
 
 const app = express();
 const PORT = process.env.PORT || 4321;
@@ -11,6 +12,7 @@ const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : __d
 const DATA_FILE = path.join(DATA_DIR, 'data.json');
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
 const CAMPAIGNS_FILE = path.join(DATA_DIR, 'campaigns.json');
+const APITOOLS_FILE  = path.join(DATA_DIR, 'apitools.json');
 const ACTIVE_TIER = '999';
 const SALT_ROUNDS = 10;
 const MIN_PASSWORD_LEN = 6;
@@ -75,6 +77,8 @@ const readAgents    = () => readJsonFile(AGENTS_FILE,    { agents: [] });
 const writeAgents   = (d) => writeJsonFile(AGENTS_FILE, d);
 const readCampaigns = () => readJsonFile(CAMPAIGNS_FILE, { campaigns: [] });
 const writeCampaigns = (d) => writeJsonFile(CAMPAIGNS_FILE, d);
+const readApiTools  = () => readJsonFile(APITOOLS_FILE, { tools: [] });
+const writeApiTools = (d) => writeJsonFile(APITOOLS_FILE, d);
 
 /* ----------------------------------------------------------------
    In-memory session store  { token → { agentId, nombre, isAdmin, expiresAt } }
@@ -349,6 +353,104 @@ app.delete('/api/campaigns/:id', (req, res) => {
 });
 
 /* ----------------------------------------------------------------
+   API Tools (configurador de integraciones) — admin only
+---------------------------------------------------------------- */
+const syncing = new Set(); // ids en ejecución (evita runs solapados)
+
+app.get('/api/apitools', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const data = readApiTools();
+  res.json({ tools: data.tools.map(publicTool) });
+});
+
+app.post('/api/apitools', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const parsed = parseToolBody(req.body, null);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const data = readApiTools();
+  const nextId = data.tools.reduce((m, t) => Math.max(m, t.id), 0) + 1;
+  const tool = { id: nextId, ...parsed.value, ultimoRun: null };
+  data.tools.push(tool);
+  writeApiTools(data);
+  log(`APITOOL_CREATE by=${admin.nombre} id=${nextId} nombre=${tool.nombre}`);
+  res.json({ tool: publicTool(tool) });
+});
+
+app.put('/api/apitools/:id', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+  const data = readApiTools();
+  const idx = data.tools.findIndex(t => t.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Herramienta no encontrada' });
+  const parsed = parseToolBody(req.body, data.tools[idx]);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  data.tools[idx] = { ...data.tools[idx], id, ...parsed.value };
+  writeApiTools(data);
+  log(`APITOOL_UPDATE by=${admin.nombre} id=${id}`);
+  res.json({ tool: publicTool(data.tools[idx]) });
+});
+
+app.delete('/api/apitools/:id', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+  const data = readApiTools();
+  const before = data.tools.length;
+  data.tools = data.tools.filter(t => t.id !== id);
+  if (data.tools.length === before) return res.status(404).json({ error: 'Herramienta no encontrada' });
+  writeApiTools(data);
+  log(`APITOOL_DELETE by=${admin.nombre} id=${id}`);
+  res.json({ ok: true });
+});
+
+// Ejecuta una herramienta por id, guarda ultimoRun. Reutilizable por triggers.
+async function ejecutarHerramienta(id) {
+  if (syncing.has(id)) return { ok: false, mensaje: 'Ya se está sincronizando' };
+  syncing.add(id);
+  try {
+    const data = readApiTools();
+    const tool = data.tools.find(t => t.id === id);
+    if (!tool) return { ok: false, mensaje: 'Herramienta no encontrada' };
+    let run;
+    try {
+      const r = await runSyncTool(tool, readData, writeData);
+      run = { at: new Date().toISOString(), ok: true, creados: r.creados, actualizados: r.actualizados, sinCambios: r.sinCambios, errores: 0, mensaje: `OK (${r.total} clientes)` };
+    } catch (err) {
+      run = { at: new Date().toISOString(), ok: false, creados: 0, actualizados: 0, sinCambios: 0, errores: 1, mensaje: String(err && err.message ? err.message : err) };
+    }
+    tool.ultimoRun = run;
+    writeApiTools(data);
+    log(`APITOOL_RUN id=${id} ok=${run.ok} ${run.mensaje}`);
+    return run;
+  } finally {
+    syncing.delete(id);
+  }
+}
+
+app.post('/api/apitools/:id/run', async (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+  const run = await ejecutarHerramienta(id);
+  res.json({ ultimoRun: run });
+});
+
+// Corre todas las herramientas activas de tipo MikroWisp (arranque + 24 h).
+async function syncTodasActivas() {
+  const data = readApiTools();
+  for (const t of data.tools) {
+    if (t.activa && t.tipo === TIPO_MIKROWISP) {
+      await ejecutarHerramienta(t.id);
+    }
+  }
+}
+
+/* ----------------------------------------------------------------
    GET /api/state — returns tier-999 clients + log, ETag support
 ---------------------------------------------------------------- */
 app.get('/api/state', (req, res) => {
@@ -447,6 +549,11 @@ if (require.main === module) {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`ValNet Upsell  →  http://localhost:${PORT}`);
     console.log(`Red local      →  http://[IP-de-esta-PC]:${PORT}`);
+    // Sync de clientes: al arrancar + cada 24 h. No-fatal.
+    syncTodasActivas().catch(err => console.error('sync arranque falló:', err));
+    setInterval(() => {
+      syncTodasActivas().catch(err => console.error('sync 24h falló:', err));
+    }, 24 * 60 * 60 * 1000).unref();
   });
 }
 
