@@ -36,7 +36,7 @@ import { NOW } from './constants';
             id: nextId, ...action.cliente, tier: '999',
             plan: action.cliente.plan || "Conectao'",
             estado:'pendiente', notas:'', callbackAt:null, lastContact:null,
-            recordatorio: null, rev: 1,
+            recordatorio: null, promo: null, rev: 1,
           };
           return { ...state, clients: [...state.clients, nuevo] };
         }
@@ -49,7 +49,7 @@ import { NOW } from './constants';
             deletedIds: [],
           };
         case 'LIMPIAR': {
-          const clients = state.clients.map(c => bump(c, { estado:'pendiente', notas:'', callbackAt:null, lastContact:null, recordatorio:null }));
+          const clients = state.clients.map(c => bump(c, { estado:'pendiente', notas:'', callbackAt:null, lastContact:null, recordatorio:null, promo:null }));
           return { clients, log: [], deletedIds: [] };
         }
         case 'TOMAR_CLIENTE': {
@@ -82,6 +82,29 @@ import { NOW } from './constants';
           const clients = state.clients.map(c =>
             c.id === action.id ? bump(c, { recordatorio: null }) : c
           );
+          return { ...state, clients };
+        }
+        case 'SET_PROMO': {
+          const { id, promo } = action;
+          const clients = state.clients.map(c =>
+            c.id === id ? bump(c, { promo }) : c
+          );
+          return { ...state, clients };
+        }
+        case 'CLEAR_PROMO': {
+          const clients = state.clients.map(c =>
+            c.id === action.id ? bump(c, { promo: null }) : c
+          );
+          return { ...state, clients };
+        }
+        case 'REGRESAR_PLAN': {
+          // El agente regresó al cliente a su plan original (en el sistema de
+          // facturación). Reflejamos el plan original y limpiamos la promo para
+          // que la alarma desaparezca.
+          const clients = state.clients.map(c => {
+            if (c.id !== action.id || !c.promo) return c;
+            return bump(c, { plan: c.promo.planOriginal || c.plan, promo: null });
+          });
           return { ...state, clients };
         }
         default:

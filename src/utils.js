@@ -38,6 +38,15 @@
       d.setMonth(d.getMonth() + n);
       return d.toISOString().slice(0, 10);
     }
+    // Días entre hoy (a medianoche) y una fecha 'YYYY-MM-DD'. Negativo = ya pasó,
+    // 0 = es hoy. Mismo manejo de fecha que esVencido para que coincidan.
+    function diasHasta(fechaStr) {
+      if (!fechaStr) return null;
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      const d = new Date(fechaStr + 'T00:00:00');
+      return Math.round((d - hoy) / 86400000);
+    }
     function telLink(telefono) {
       const digits = telefono.replace(/\D/g,'');
       return 'tel:+1' + digits;
@@ -56,4 +65,4 @@
       return planMatch && zonaMatch;
     }
 
-export { mesesEntre, antiguedad, fechaCorta, fechaHora, esHoy, esVencido, fechaMasNMeses, telLink, matchesCampania };
+export { mesesEntre, antiguedad, fechaCorta, fechaHora, esHoy, esVencido, fechaMasNMeses, diasHasta, telLink, matchesCampania };
