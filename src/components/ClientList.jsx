@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge } from './Badge';
 import { ModalAgregar } from './ModalAgregar';
+import { ModalPromo } from './ModalPromo';
 import { ESTADOS, ORDEN_ESTADOS } from '../constants';
 import { Icon } from '../icons';
 import { antiguedad, esVencido, fechaCorta, fechaHora, matchesCampania } from '../utils';
@@ -77,13 +78,14 @@ import { antiguedad, esVencido, fechaCorta, fechaHora, matchesCampania } from '.
     ============================================================ */
     const POR_PAGINA = 50;
 
-    function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session, campania, onClearRecordatorio, onSetRecordatorio }) {
+    function ClientList({ clients, onOpen, onAdd, onTomar, onEliminar, onRevertir, session, campania, onClearRecordatorio, onSetRecordatorio, onSetPromo, onClearPromo }) {
       const [filtro, setFiltro] = useState('todos');
       const [orden, setOrden] = useState('antiguos'); // antiguos | nuevos
       const [busqueda, setBusqueda] = useState('');
       const [modal, setModal] = useState(false);
       const [pagina, setPagina] = useState(1);
       const [reminderTarget, setReminderTarget] = useState(null); // { id, nombre, fecha, nota }
+      const [promoTarget, setPromoTarget] = useState(null); // { id, nombre, planOriginal, planPromo, ... }
 
       // Reset to page 1 when filters or search change
       useEffect(() => { setPagina(1); }, [filtro, busqueda, orden]);
@@ -91,6 +93,13 @@ import { antiguedad, esVencido, fechaCorta, fechaHora, matchesCampania } from '.
       const openReminder = (e, c) => {
         e.stopPropagation();
         setReminderTarget({ id: c.id, nombre: c.nombre, fecha: c.recordatorio?.fecha || '', nota: c.recordatorio?.nota || '' });
+      };
+
+      const openPromo = (e, c) => {
+        e.stopPropagation();
+        setPromoTarget(c.promo
+          ? { id: c.id, nombre: c.nombre, planOriginal: c.promo.planOriginal, planPromo: c.promo.planPromo, precioPromo: c.promo.precioPromo, inicio: c.promo.inicio, fin: c.promo.fin, nota: c.promo.nota }
+          : { id: c.id, nombre: c.nombre, planOriginal: c.plan, planPromo: c.plan, precioPromo: null, fin: '', nota: '' });
       };
 
       const clientesFiltradosCampania = useMemo(() =>
@@ -141,6 +150,15 @@ import { antiguedad, esVencido, fechaCorta, fechaHora, matchesCampania } from '.
               onSave={onSetRecordatorio}
               onClear={onClearRecordatorio}
               onClose={() => setReminderTarget(null)}
+            />
+          )}
+
+          {promoTarget && onSetPromo && (
+            <ModalPromo
+              target={promoTarget}
+              onSave={onSetPromo}
+              onClear={onClearPromo}
+              onClose={() => setPromoTarget(null)}
             />
           )}
 
@@ -237,6 +255,11 @@ import { antiguedad, esVencido, fechaCorta, fechaHora, matchesCampania } from '.
                             {c.recordatorio.nota && <span className="font-normal text-amber-500"> · {c.recordatorio.nota}</span>}
                           </div>
                         )}
+                        {c.promo && (
+                          <div className={'mt-0.5 flex w-fit items-center gap-1 text-[11px] font-semibold ' + (esVencido(c.promo.fin) ? 'text-rose-600' : 'text-violet-600')}>
+                            🏷️ {c.promo.planPromo} {esVencido(c.promo.fin) ? '· venció el ' : '· hasta '}{c.promo.fin}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 font-medium text-slate-600">{c.telefono}</td>
                       <td className="hidden max-w-xs px-4 py-3 text-slate-500 lg:table-cell"><div className="truncate">{c.direccion}</div></td>
@@ -279,6 +302,19 @@ import { antiguedad, esVencido, fechaCorta, fechaHora, matchesCampania } from '.
                                   ? 'border-amber-300 bg-amber-50 text-amber-600 hover:bg-amber-100'
                                   : 'border-slate-200 text-slate-400 hover:bg-slate-50')}>
                               🔔
+                            </button>
+                          )}
+                          {onSetPromo && (
+                            <button onClick={e => openPromo(e, c)}
+                              title={c.promo ? 'Editar promo temporal' : 'Aplicar promo temporal'}
+                              aria-label={c.promo ? 'Editar promo temporal' : 'Aplicar promo temporal'}
+                              className={'rounded-lg border px-2 py-1 transition ' +
+                                (c.promo
+                                  ? (esVencido(c.promo.fin)
+                                      ? 'border-rose-300 bg-rose-50 text-rose-600 hover:bg-rose-100'
+                                      : 'border-violet-300 bg-violet-50 text-violet-600 hover:bg-violet-100')
+                                  : 'border-slate-200 text-slate-400 hover:bg-slate-50')}>
+                              <Icon.Percent className="h-3.5 w-3.5" />
                             </button>
                           )}
                           {c.estado !== 'pendiente' && (

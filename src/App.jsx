@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AdminView } from './components/AdminView';
+import { AlarmasView } from './components/AlarmasView';
 import { CallPanel } from './components/CallPanel';
 import { ClientList } from './components/ClientList';
 import { Dashboard } from './components/Dashboard';
@@ -9,7 +10,7 @@ import { Toast } from './components/Toast';
 import { ESTADOS, PLANES } from './constants';
 import { init, reducer } from './reducer';
 import { SESSION_KEY, loadSession, setCampaniaSession, touchSession } from './session';
-import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } from './utils';
+import { antiguedad, diasHasta, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } from './utils';
 
     /* ============================================================
        APP PRINCIPAL
@@ -179,9 +180,16 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } 
         };
       }, [state, campania]);
 
-      const recordatoriosCount = useMemo(() =>
-        state.clients.filter(c => c.recordatorio && esVencido(c.recordatorio.fecha)).length,
-      [state.clients]);
+      // Total de alarmas que requieren atención (promos vencidas, recordatorios
+      // vencidos y callbacks vencidos). Alimenta el badge del Header.
+      const alarmasCount = useMemo(() => {
+        const ahora = Date.now();
+        return state.clients.filter(c =>
+          (c.promo && esVencido(c.promo.fin)) ||
+          (c.recordatorio && esVencido(c.recordatorio.fecha)) ||
+          (c.estado === 'callback' && c.callbackAt && new Date(c.callbackAt).getTime() <= ahora)
+        ).length;
+      }, [state.clients]);
 
       const activeCliente = state.clients.find(c => c.id === activeId);
 
@@ -227,6 +235,23 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } 
       const onClearRecordatorio = (id) => {
         dispatch({ type: 'CLEAR_RECORDATORIO', id });
         showToast('Recordatorio eliminado');
+      };
+
+      const onSetPromo = (id, promo) => {
+        dispatch({ type: 'SET_PROMO', id, promo });
+        showToast('Promo temporal guardada 🏷️');
+      };
+
+      const onClearPromo = (id) => {
+        dispatch({ type: 'CLEAR_PROMO', id });
+        showToast('Promo eliminada');
+      };
+
+      const onRegresarPlan = (id) => {
+        const cli = state.clients.find(c => c.id === id);
+        const planOriginal = cli?.promo?.planOriginal;
+        dispatch({ type: 'REGRESAR_PLAN', id });
+        showToast(planOriginal ? `Cliente regresado al plan ${planOriginal}` : 'Promo cerrada', 'ok');
       };
 
       const onSelectCampania = (id) => {
@@ -361,6 +386,7 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } 
               agentId: null,
               agentNombre: null,
               recordatorio: null,
+              promo: null,
             };
           }).filter(c => c.nombre);
 
@@ -398,10 +424,11 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } 
             setVista={(v) => { setVista(v); setActiveId(null); fetchState(); touchSession(); }}
             onExport={exportarCSV} onReset={onReset} onImport={session.isAdmin ? importarCSV : undefined}
             session={session} onLogout={handleLogout} onAdmin={onAdmin}
-            campaigns={campaigns} campania={campania} onSelectCampania={onSelectCampania} recordatoriosCount={recordatoriosCount} />
+            campaigns={campaigns} campania={campania} onSelectCampania={onSelectCampania} alarmasCount={alarmasCount} />
 
           {vista === 'dashboard' && <Dashboard clients={state.clients} log={state.log} stats={stats} campania={campania} />}
-          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} campania={campania} onClearRecordatorio={onClearRecordatorio} onSetRecordatorio={onSetRecordatorio} />}
+          {vista === 'lista' && <ClientList clients={state.clients} onOpen={abrirCliente} onAdd={onAdd} onTomar={onTomar} onEliminar={onEliminar} onRevertir={onRevertir} session={session} campania={campania} onClearRecordatorio={onClearRecordatorio} onSetRecordatorio={onSetRecordatorio} onSetPromo={onSetPromo} onClearPromo={onClearPromo} />}
+          {vista === 'alarmas' && <AlarmasView clients={state.clients} onOpen={abrirCliente} onRegresarPlan={onRegresarPlan} onClearPromo={onClearPromo} onSetPromo={onSetPromo} onClearRecordatorio={onClearRecordatorio} />}
           {vista === 'admin' && session.isAdmin && <AdminView session={session} onCampaignsChange={fetchCampaigns} />}
           {vista === 'llamada' && activeCliente && (
             <CallPanel cliente={activeCliente} onResult={onResult} onNota={onNota}

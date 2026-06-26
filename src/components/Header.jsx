@@ -4,7 +4,7 @@ import { Icon } from '../icons';
     /* ============================================================
        HEADER
     ============================================================ */
-    function Header({ stats, vista, setVista, onExport, onReset, onImport, session, onLogout, onAdmin, campaigns, campania, onSelectCampania, recordatoriosCount }) {
+    function Header({ stats, vista, setVista, onExport, onReset, onImport, session, onLogout, onAdmin, campaigns, campania, onSelectCampania, alarmasCount }) {
       return (
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-4 px-4 py-3 sm:px-6">
@@ -21,11 +21,14 @@ import { Icon } from '../icons';
             </div>
 
             <nav className="order-3 flex w-full gap-1 rounded-xl bg-slate-100 p-1 sm:order-2 sm:ml-4 sm:w-auto">
-              {[['lista','Clientes', Icon.Users], ['dashboard','Dashboard', Icon.Chart]].map(([id, label, I]) => (
+              {[['lista','Clientes', Icon.Users], ['dashboard','Dashboard', Icon.Chart], ['alarmas','Alarmas', Icon.Alarm]].map(([id, label, I]) => (
                 <button key={id} onClick={() => setVista(id)}
                   className={'flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-1.5 text-sm font-semibold transition sm:flex-none ' +
                     (vista === id ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-800')}>
                   <I className="h-4 w-4" />{label}
+                  {id === 'alarmas' && alarmasCount > 0 && (
+                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white">{alarmasCount}</span>
+                  )}
                 </button>
               ))}
             </nav>
@@ -41,13 +44,14 @@ import { Icon } from '../icons';
                   <option key={c.id} value={c.id}>{c.nombre}</option>
                 ))}
               </select>
-              {recordatoriosCount > 0 && (
-                <div className="relative flex items-center justify-center rounded-lg border border-amber-200 bg-amber-50 p-1.5 text-amber-600">
-                  <Icon.Bell className="h-4 w-4" />
+              {alarmasCount > 0 && (
+                <button onClick={() => setVista('alarmas')} title="Ver alarmas" aria-label={`Ver alarmas (${alarmasCount})`}
+                  className="relative flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 p-1.5 text-rose-600 transition hover:bg-rose-100">
+                  <Icon.Alarm className="h-4 w-4" />
                   <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white leading-none">
-                    {recordatoriosCount}
+                    {alarmasCount}
                   </span>
-                </div>
+                </button>
               )}
               <span className="hidden text-xs font-semibold text-slate-500 sm:inline">Hola, {session.nombre}</span>
               {session.isAdmin && (

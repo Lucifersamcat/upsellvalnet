@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from './Badge';
 import { RD } from '../constants';
-import { OBJECIONES, makeGuion } from '../guion';
+import { makeGuion, makeObjeciones } from '../guion';
 import { Icon } from '../icons';
 import { antiguedad, fechaCorta, fechaMasNMeses, telLink } from '../utils';
 
@@ -42,6 +42,7 @@ import { antiguedad, fechaCorta, fechaMasNMeses, telLink } from '../utils';
       const notaRef = useRef(null);
 
       const guion = useMemo(() => makeGuion(campania), [campania]);
+      const objeciones = useMemo(() => makeObjeciones(campania), [campania]);
 
       // Reset al cambiar de cliente
       useEffect(() => {
@@ -56,9 +57,9 @@ import { antiguedad, fechaCorta, fechaMasNMeses, telLink } from '../utils';
       const registrar = (resultado, callbackAt) => {
         if (nota !== cliente.notas) onNota(cliente.id, nota);
         onResult(cliente.id, resultado, callbackAt);
-        if (resultado === 'convertido' && campania && campania.mesesPromo > 0 && onSetRecordatorio) {
-          setReminderFecha(fechaMasNMeses(campania.mesesPromo));
-          setReminderNota(`Verificar si mantiene plan ${campania.planNuevo}`);
+        if (resultado === 'convertido' && campania && onSetRecordatorio) {
+          setReminderFecha(fechaMasNMeses(1));
+          setReminderNota(`Confirmar satisfacción con el plan ${campania.planNuevo}`);
           setShowReminderSuggest(true);
         }
       };
@@ -137,8 +138,12 @@ import { antiguedad, fechaCorta, fechaMasNMeses, telLink } from '../utils';
                       <span className="font-semibold text-slate-700">{campania.planActual} · {RD(campania.precioActual)}</span>
                     </div>
                     <div className="mt-1.5 flex items-center justify-between">
-                      <span className="text-slate-500">Oferta</span>
-                      <span className="font-semibold text-brand-700">{campania.planNuevo} · {RD(campania.precioPromo)} × {campania.mesesPromo}m</span>
+                      <span className="text-slate-500">Upsell a</span>
+                      <span className="font-semibold text-brand-700">{campania.planNuevo} · {RD(campania.precioNuevo)}</span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between border-t border-slate-200 pt-1.5">
+                      <span className="text-slate-500">Diferencia</span>
+                      <span className="font-semibold text-emerald-700">+{RD(Math.max(0, campania.precioNuevo - campania.precioActual))}/mes</span>
                     </div>
                   </div>
                 ) : (
@@ -201,7 +206,7 @@ import { antiguedad, fechaCorta, fechaMasNMeses, telLink } from '../utils';
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h3 className="mb-3 text-sm font-bold text-slate-900">Manejo de objeciones</h3>
                 <div className="space-y-2">
-                  {OBJECIONES.map((o, i) => (
+                  {objeciones.map((o, i) => (
                     <ObjecionItem key={i} obj={o} abierto={objAbierta === i} onToggle={() => setObjAbierta(a => a === i ? null : i)} />
                   ))}
                 </div>
