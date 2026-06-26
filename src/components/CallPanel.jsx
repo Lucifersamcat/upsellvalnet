@@ -26,9 +26,10 @@ import { antiguedad, fechaCorta, fechaMasNMeses, telLink } from '../utils';
       );
     }
 
-    function CallPanel({ cliente, onResult, onNota, onBack, hayNext, onNext, campania, onSetRecordatorio }) {
+    function CallPanel({ cliente, onResult, onNota, onBack, hayNext, onNext, campania, onSetRecordatorio, mikrowispEnabled, onRefresh }) {
       const [paso, setPaso] = useState(0);
       const [nota, setNota] = useState(cliente.notas || '');
+      const [refreshing, setRefreshing] = useState(false);
       const [objAbierta, setObjAbierta] = useState(null);
       const [showCallback, setShowCallback] = useState(false);
       const [callbackVal, setCallbackVal] = useState(() => {
@@ -52,6 +53,12 @@ import { antiguedad, fechaCorta, fechaMasNMeses, telLink } from '../utils';
       const guardarNota = useCallback(() => {
         if (nota !== cliente.notas) onNota(cliente.id, nota);
       }, [nota, cliente, onNota]);
+
+      const refrescarDesdeMikrowisp = async () => {
+        if (refreshing || !onRefresh) return;
+        setRefreshing(true);
+        try { await onRefresh(cliente.id); } finally { setRefreshing(false); }
+      };
 
       const registrar = (resultado, callbackAt) => {
         if (nota !== cliente.notas) onNota(cliente.id, nota);
@@ -129,6 +136,15 @@ import { antiguedad, fechaCorta, fechaMasNMeses, telLink } from '../utils';
                     <dd className="text-slate-600">Cliente desde <strong className="text-slate-800">{fechaCorta(cliente.inicio)}</strong> · {antiguedad(cliente.inicio)}</dd>
                   </div>
                 </dl>
+
+                {mikrowispEnabled && (
+                  <button onClick={refrescarDesdeMikrowisp} disabled={refreshing}
+                    title="Trae nombre, teléfono, dirección y plan actuales desde MikroWisp"
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">
+                    <Icon.Refresh className={'h-4 w-4 ' + (refreshing ? 'animate-spin' : '')} />
+                    {refreshing ? 'Consultando MikroWisp…' : 'Actualizar desde MikroWisp'}
+                  </button>
+                )}
 
                 {campania ? (
                   <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs ring-1 ring-slate-100">

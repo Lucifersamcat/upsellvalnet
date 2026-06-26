@@ -46,14 +46,16 @@ DATA_DIR=/ruta/a/datos   # opcional; por defecto usa el directorio del proyecto
 - **Dashboard** — conversiones, tasa, ingreso adicional proyectado, llamadas del día
 - **Campañas** — múltiples campañas con planes, precios y filtro de zona (admin)
 - **Gestión de agentes** — crear, eliminar, asignar rol admin (admin)
-- **Importar clientes** — CSV bulk via `/api/import` (admin)
+- **Importar clientes** — CSV bulk via `/api/import` (admin) — forma principal de cargar la cartera
 - **Exportar resultados** — CSV con todos los campos
+- **Refrescar desde MikroWisp** — botón en el panel de llamada que consulta la API de MikroWisp por cédula (`/api/mikrowisp/lookup`) y actualiza nombre, teléfono, dirección y plan del cliente, preservando estado/notas/recordatorio. El token de MikroWisp solo permite **lookup puntual** (un cliente por consulta), no listar toda la cartera; por eso la carga masiva se hace por CSV. Requiere `MIKROWISP_API_URL` + `MIKROWISP_TOKEN` en `.env` (si faltan, el botón no aparece).
 
 ## Seguridad
 
 - Cabeceras HTTP: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`
 - Rate limiting en login: 5 intentos fallidos / 15 min por IP
-- Audit log en consola: LOGIN, LOGOUT, AGENT_CREATE, AGENT_DELETE, IMPORT
+- Audit log en consola: LOGIN, LOGOUT, AGENT_CREATE, AGENT_DELETE, IMPORT, MIKROWISP_LOOKUP
+- El token de MikroWisp vive solo en el servidor (`.env`); nunca se envía al navegador
 - Datos sensibles (`data.json`, `agents.json`, `campaigns.json`) en `.gitignore`
 
 ## Estructura
@@ -72,6 +74,7 @@ src/
     ├── AdminView, ModalAgregar
     └── ErrorBoundary         # Captura errores de render
 server.js                     # API Express + servicio de dist/
+mikrowisp.js                  # Lookup puntual de cliente por cédula (funciones puras + fetch)
 ```
 
 ## CI

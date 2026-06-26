@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
+const { mikrowispConfig, lookupClient } = require('./mikrowisp');
 
 const app = express();
 const PORT = process.env.PORT || 4321;
@@ -439,6 +440,42 @@ app.post('/api/import', (req, res) => {
   writeData(data);
   log(`IMPORT  by=${admin.nombre} added=${toAdd.length} skipped=${incoming.length - toAdd.length}`);
   res.json({ added: toAdd.length, skipped: incoming.length - toAdd.length });
+});
+
+/* ----------------------------------------------------------------
+   GET /api/config — flags de integración para el frontend (sin secretos)
+---------------------------------------------------------------- */
+app.get('/api/config', (req, res) => {
+  if (!requireAuth(req, res)) return;
+  res.json({ mikrowispEnabled: mikrowispConfig().enabled });
+});
+
+/* ----------------------------------------------------------------
+   POST /api/mikrowisp/lookup — refresca UN cliente por cédula.
+   El token de MikroWisp solo permite lookup puntual (no listar la cartera),
+   así que esto consulta la fuente y devuelve los campos de origen frescos;
+   la app los aplica con un dispatch que sube `rev` (no se escribe aquí).
+---------------------------------------------------------------- */
+app.post('/api/mikrowisp/lookup', async (req, res) => {
+  const session = requireAuth(req, res);
+  if (!session) return;
+  const cfg = mikrowispConfig();
+  if (!cfg.enabled) {
+    return res.status(503).json({ error: 'Integración MikroWisp no configurada' });
+  }
+  const cedula = String(req.body?.cedula || '').trim();
+  if (!cedula) return res.status(400).json({ error: 'Cédula requerida' });
+
+  const { cliente, error } = await lookupClient(cfg, cedula);
+  if (error) {
+    log(`MIKROWISP_LOOKUP by=${session.nombre} cedula=${cedula} ERROR=${error}`);
+    return res.status(502).json({ error: `MikroWisp: ${error}` });
+  }
+  if (!cliente) {
+    return res.status(404).json({ error: 'Cliente no encontrado en MikroWisp' });
+  }
+  log(`MIKROWISP_LOOKUP by=${session.nombre} cedula=${cedula} ok`);
+  res.json({ cliente });
 });
 
 // Only start the HTTP server when run directly (`node server.js`), so the

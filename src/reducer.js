@@ -28,6 +28,26 @@ import { NOW } from './constants';
           const clients = state.clients.map(c => c.id === action.id ? bump(c, { notas: action.notas }) : c);
           return { ...state, clients };
         }
+        case 'ACTUALIZAR_DATOS': {
+          // Refresco desde MikroWisp: parcha solo campos de origen y preserva el
+          // trabajo del agente (estado, notas, recordatorio…) y el id. Sube `rev`
+          // para ganar el merge del servidor. Si nada cambió, devuelve el mismo
+          // estado para no disparar un guardado innecesario.
+          const { id, datos } = action;
+          const SOURCE = ['nombre', 'telefono', 'direccion', 'inicio', 'plan', 'idMikrowisp'];
+          let changedAny = false;
+          const clients = state.clients.map(c => {
+            if (c.id !== id) return c;
+            const changes = {};
+            for (const f of SOURCE) {
+              if (datos[f] !== undefined && datos[f] !== '' && datos[f] !== c[f]) changes[f] = datos[f];
+            }
+            if (!Object.keys(changes).length) return c;
+            changedAny = true;
+            return bump(c, changes);
+          });
+          return changedAny ? { ...state, clients } : state;
+        }
         case 'AGREGAR': {
           // Ignore non-numeric ids (e.g. cédula strings from CSV import) so a
           // mixed list doesn't poison Math.max into NaN.
