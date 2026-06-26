@@ -27,6 +27,7 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } 
       const sessionRef = useRef(session);
       sessionRef.current = session;
       const [campaigns, setCampaigns] = useState([]);
+      const [config, setConfig] = useState({ mikrowispEnabled: false });
       const [campaniaId, setCampaniaId] = useState(() => loadSession()?.campaniaId ?? null);
       const [dataReady, setDataReady] = useState(false);
       const setDataReadyRef = useRef(setDataReady);
@@ -130,11 +131,20 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } 
         }
       }, []);
 
+      const fetchConfig = useCallback(async () => {
+        const token = sessionRef.current?.token;
+        try {
+          const res = await fetch('/api/config', { headers: { 'X-Auth-Token': token || '' } });
+          if (res.ok) setConfig(await res.json());
+        } catch { /* config no crítica: el botón de MikroWisp simplemente no aparece */ }
+      }, []);
+
       // Load after a valid session is available; re-fires if session token changes
       useEffect(() => {
         if (!session) { setDataReady(false); return; }
         fetchState();
         fetchCampaigns();
+        fetchConfig();
       }, [session?.token]);
 
       // Auto-save on mutation (skip when state was set by LOAD or before first server load)
@@ -235,6 +245,32 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } 
       };
 
       const onNota = (id, notas) => dispatch({ type: 'NOTA', id, notas });
+
+      // Refresca un cliente desde MikroWisp (lookup por cédula = su id). El
+      // servidor solo consulta; aquí aplicamos los campos de origen y el
+      // auto-save los persiste con el merge por rev habitual.
+      const onRefreshCliente = async (id) => {
+        const token = sessionRef.current?.token;
+        try {
+          const res = await fetch('/api/mikrowisp/lookup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token || '' },
+            body: JSON.stringify({ cedula: id }),
+          });
+          if (res.status === 401) { logoutRef.current?.(); return; }
+          if (res.status === 404) { showToast('Cliente no encontrado en MikroWisp', 'warn'); return; }
+          if (!res.ok) {
+            const { error } = await res.json().catch(() => ({}));
+            showToast(error || 'Error al consultar MikroWisp', 'err');
+            return;
+          }
+          const { cliente } = await res.json();
+          dispatch({ type: 'ACTUALIZAR_DATOS', id, datos: cliente });
+          showToast('Datos actualizados desde MikroWisp ✓');
+        } catch {
+          showToast('Sin conexión a MikroWisp', 'err');
+        }
+      };
 
       const onTomar = (clientId) => {
         const cliente = state.clients.find(c => c.id === clientId);
@@ -408,7 +444,8 @@ import { antiguedad, esHoy, esVencido, fechaCorta, fechaHora, matchesCampania } 
               onBack={() => { setVista('lista'); setActiveId(null); }}
               hayNext={!!siguientePendiente(activeCliente.id)}
               onNext={() => { const n = siguientePendiente(activeCliente.id); if (n) setActiveId(n); }}
-              campania={campania} onSetRecordatorio={onSetRecordatorio} />
+              campania={campania} onSetRecordatorio={onSetRecordatorio}
+              mikrowispEnabled={config.mikrowispEnabled} onRefresh={onRefreshCliente} />
           )}
 
           <Toast toast={toast} />
